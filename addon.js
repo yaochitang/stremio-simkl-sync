@@ -70,11 +70,11 @@ Config.load();
 // SIMKL OFFICIAL API ENDPOINTS
 // --------------------------
 const SIMKL_API = {
-  AUTH: 'shturl.cc/0RfC7CpZrHI93lbjR6c2WzL',
-  TOKEN: 'shturl.cc/1u4zBx6bwFVRYPNRU7GtszV',
-  SCROBBLE: 'shturl.cc/9GWHb9aQNOs0EfmPgRKepp6W7L',
-  WATCHING: 'shturl.cc/4NL2QWgsDLXJ0UZA6AlW7l5Op1KOg',
-  COMPLETE: 'shturl.cc/fukM7GEjTM9Kx2UkIMYpmtoJU'
+  AUTH: 'https://api.simkl.com/oauth/authorize',
+  TOKEN: 'https://api.simkl.com/oauth/token',
+  SCROBBLE: 'https://api.simkl.com/scrobble',
+  WATCHING: 'https://api.simkl.com/watching',
+  COMPLETE: 'https://api.simkl.com/complete'
 };
 
 // --------------------------
@@ -114,6 +114,9 @@ app.use((req, res, next) => {
 app.get('/configure', (req, res) => {
   const cfg = Config.get();
   const host = req.hostname;
+  const manifestUrl = `https://${host}/manifest.json`;
+  const stremioProtocolUrl = `stremio://${host}/manifest.json`;
+  const stremioWebUrl = `https://web.stremio.com/#/addons?addon=${encodeURIComponent(manifestUrl)}`;
   const redirectUri = `https://${host}/auth/simkl/callback`;
 
   const html = `
@@ -132,9 +135,12 @@ app.get('/configure', (req, res) => {
           input, select { background: #2d2d3f; color: white; }
           button { background: #7CB342; color: white; cursor: pointer; font-weight: bold; }
           button.secondary { background: #444; }
+          button.install { background: #2196F3; font-size: 18px; padding: 15px; }
           .info { color: #aaa; font-size: 14px; margin-top: -5px; margin-bottom: 10px; }
           .success { color: #4CAF50; padding: 10px; background: rgba(76,175,80,0.1); border-radius: 6px; }
           .line { margin: 20px 0; border-top: 1px solid #333; }
+          .install-buttons { display: flex; gap: 10px; margin-top: 10px; }
+          .install-buttons button { flex: 1; }
       </style>
   </head>
   <body>
@@ -180,10 +186,28 @@ app.get('/configure', (req, res) => {
       </div>
 
       <div class="card">
-          <h2>📥 Add to Stremio</h2>
-          <input type="text" readonly value="https://${host}/manifest.json">
-          <p class="info">Copy this URL into Stremio → Addons → Install from URL</p>
+          <h2>📥 Install to Stremio</h2>
+          <p class="info">Click to install directly to your Stremio app or web</p>
+          
+          <!-- Install Buttons -->
+          <div class="install-buttons">
+              <a href="${stremioProtocolUrl}"><button class="install">📦 Install (App)</button></a>
+              <a href="${stremioWebUrl}" target="_blank"><button class="install">🌐 Install (Web)</button></a>
+          </div>
+          
+          <p class="info">Or copy the URL for manual install:</p>
+          <input type="text" readonly value="${manifestUrl}" id="manifestUrl">
+          <button class="secondary" onclick="copyUrl()">📋 Copy URL</button>
       </div>
+
+      <script>
+          function copyUrl() {
+              const input = document.getElementById('manifestUrl');
+              input.select();
+              document.execCommand('copy');
+              alert('URL copied to clipboard!');
+          }
+      </script>
   </body>
   </html>
   `;
