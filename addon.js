@@ -6,9 +6,9 @@ const path = require('path');
 // --- Manifest (with PIN display) ---
 const manifest = {
     id: 'org.stremio.simklsyncpro',
-    version: '3.2.0',
+    version: '3.3.0',
     name: 'Stremio Simkl Sync Pro',
-    description: 'Official Simkl Device Code OAuth flow',
+    description: 'Official Simkl PIN Auth Flow',
     logo: 'https://i.imgur.com/2B6X79y.png',
     background: 'https://i.imgur.com/70zGZLo.png',
     types: ['movie', 'series'],
@@ -34,7 +34,7 @@ let state = { deviceCode: null, userCode: null, token: null, pollInterval: 5 };
 try { state = JSON.parse(fs.readFileSync(STATE_PATH)); } catch {}
 function saveState() { fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2)); }
 
-// --- Step 1: Get Device Code (from your screenshot) ---
+// --- Step 1: Get Device Code (from Simkl docs) ---
 async function getDeviceCode(clientId) {
     const res = await fetch(`${API_BASE}/oauth/device/code`, {
         method: 'POST',
@@ -49,7 +49,7 @@ async function getDeviceCode(clientId) {
     return data;
 }
 
-// --- Step 3: Poll for Token (from your screenshot) ---
+// --- Step 3: Poll for Token (from Simkl docs) ---
 async function pollForToken(clientId) {
     if (!state.deviceCode) return null;
     const res = await fetch(`${API_BASE}/oauth/device/token`, {
