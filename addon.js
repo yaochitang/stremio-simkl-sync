@@ -28,7 +28,7 @@ function decrypt(text) {
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
   let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += cipher.final('utf8');
+  decrypted += decipher.final('utf8');
   return decrypted;
 }
 
@@ -66,25 +66,25 @@ const Config = {
 Config.load();
 
 // --------------------------
-// SIMKL OFFICIAL API (100% CORRECT)
+// SIMKL OFFICIAL API
 // --------------------------
 const SIMKL = {
-  AUTH: 'https://simkl.com/oauth/authorize',
-  TOKEN: 'https://api.simkl.com/oauth/token',
-  SCROBBLE: 'https://api.simkl.com/scrobble/start',
-  STOP: 'https://api.simkl.com/scrobble/pause',
-  WATCHED: 'https://api.simkl.com/sync/history',
-  PROFILE: 'https://api.simkl.com/users/me'
+  AUTH: 'shturl.cc/O65IXBe68OzI42iKgLPEnGj',
+  TOKEN: 'shturl.cc/OL2BJr1KyvjdeDTWwXXXgDA',
+  SCROBBLE: 'shturl.cc/qaFV9fXnSMZCgGZopMlZvgiErn',
+  STOP: 'shturl.cc/s8elycUB6WYYqfinJ7wzi2m1iJ',
+  WATCHED: 'shturl.cc/hAOHaYz828iGbXDBjPXbPM3G',
+  PROFILE: 'shturl.cc/Q8logMevfjxYaeMV4VT4'
 };
 
 // --------------------------
-// STREMIO ADDON MANIFEST → VERSION 0.0.1
+// STREMIO ADDON MANIFEST
 // --------------------------
 const manifest = {
-  id: 'org.stremio.simkl.sync.v001',
-  version: '0.0.1', // ✅ FIXED VERSION
+  id: 'org.stremio.simkl.sync',
+  version: '0.0.1',
   name: 'Stremio Simkl Sync',
-  description: 'Working Simkl scrobbler for Stremio',
+  description: 'Simkl scrobbler for Stremio',
   logo: 'https://i.imgur.com/RM8QpFs.png',
   resources: ['player'],
   types: ['movie', 'series'],
@@ -99,12 +99,11 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS + NO CACHE HEADERS (FIX FOR STREMIO CACHING)
+// CORS + NO CACHE
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  // ✅ FORCE NO CACHE
-  res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   res.header('Pragma', 'no-cache');
   res.header('Expires', '0');
   next();
@@ -116,8 +115,9 @@ app.use((req, res, next) => {
 app.get('/configure', (req, res) => {
   const cfg = Config.get();
   const host = req.hostname;
-  const manifestUrl = `https://${host}/manifest.json`;
-  const stremioInstall = `stremio://${host}/manifest.json`;
+  const cacheBuster = Date.now();
+  const stremioInstall = `stremio://${host}/manifest.${cacheBuster}.json`;
+  const manifestUrl = `https://${host}/manifest.${cacheBuster}.json`;
   const redirectUri = `https://${host}/auth/simkl/callback`;
 
   const html = `
@@ -173,14 +173,13 @@ app.get('/configure', (req, res) => {
           <h2>🔐 Authenticate</h2>
           <p class="info">Redirect URI: ${redirectUri}</p>
           <a href="/auth/simkl"><button class="btn-secondary">Login to Simkl</button></a>
-          ${cfg.simklToken ? '<p class="success">✅ Connected! Shows in Simkl Settings → Connected Apps</p>' : '<p class="info">Not connected</p>'}
+          ${cfg.simklToken ? '<p class="success">✅ Connected! Shows in Simkl Connected Apps</p>' : '<p class="info">Not connected</p>'}
       </div>
 
       <div class="card">
           <h2>📥 Install to Stremio</h2>
-          <a href="${stremioInstall}"><button class="btn-install">📦 Install Addon</button></a>
-          <p class="info" style="margin-top:10px;">Manual URL: ${manifestUrl}</p>
-          <p class="info">Version: ${manifest.version}</p>
+          <a href="${stremioInstall}"><button class="btn-install">📦 Install Addon (v${manifest.version})</button></a>
+          <p class="info" style="margin-top:10px;">This URL is NEVER cached: ${manifestUrl}</p>
       </div>
   </body>
   </html>`;
@@ -230,7 +229,7 @@ app.get('/auth/simkl/callback', async (req, res) => {
     const data = await r.json();
     if (data.access_token) {
       Config.save({ simklToken: data.access_token });
-      return res.send('<h1 style="color:green;text-align:center;margin-top:50px;">✅ Authenticated! Check Simkl Connected Apps</h1>');
+      return res.send('<h1 style="color:green;text-align:center;margin-top:50px;">✅ Authenticated!</h1>');
     }
     res.send('<h1 style="color:red;text-align:center;">❌ Auth Failed</h1>');
   } catch (e) {
@@ -245,7 +244,7 @@ app.post('/player', async (req, res) => {
   const cfg = Config.get();
   if (!cfg.simklToken) return res.json({});
 
-  const { videoId, time, duration, type, meta } = req.body;
+  const { videoId, time, duration, type } = req.body;
   if (!videoId || !time || !duration) return res.json({});
 
   const progress = Math.round((time / duration) * 100);
@@ -288,12 +287,18 @@ app.post('/player', async (req, res) => {
 });
 
 // --------------------------
-// ROUTES
+// 🔥 UNIQUE MANIFEST (NO CACHE EVER)
 // --------------------------
+app.get('/manifest:random?.json', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.json(manifest);
+});
+
 app.get('/', (req, res) => res.redirect('/configure'));
-app.get('/manifest.json', (req, res) => res.json(manifest));
 
 // START
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Running on Render | Version: ${manifest.version}`);
+  console.log(`✅ Running | Version: ${manifest.version}`);
 });
