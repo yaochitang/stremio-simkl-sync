@@ -68,10 +68,10 @@ Config.load();
 // REAL SIMKL API ENDPOINTS (NO SHORTENERS)
 // --------------------------
 const SIMKL = {
-  AUTH: 'shturl.cc/NMt0g56ppqgqU7lbO1BxfAUS9c7',
-  TOKEN: 'shturl.cc/fqfN4xzeIIZ5DL8LwYbIo1n',
-  SCROBBLE_START: 'shturl.cc/vrkquG9NkCEv5BcMhx2ZcVMnz2',
-  SYNC_HISTORY: 'shturl.cc/fea7qbVqdWr1XJNGqgBxxfok'
+  AUTH: 'https://simkl.com/oauth/authorize',
+  TOKEN: 'https://api.simkl.com/oauth/token',
+  SCROBBLE_START: 'https://api.simkl.com/scrobble/start',
+  SYNC_HISTORY: 'https://api.simkl.com/sync/history'
 };
 
 // --------------------------
