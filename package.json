@@ -1,7 +1,7 @@
 {
   "name": "stremio-simkl-sync",
   "version": "0.0.1",
-  "main": "index.js",
+  "main": "addon.js",
   "scripts": {
     "start": "node addon.js"
   },
