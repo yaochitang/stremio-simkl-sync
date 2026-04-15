@@ -65,7 +65,7 @@ const Config = {
 Config.load();
 
 // --------------------------
-// SIMKL OFFICIAL API (100% CORRECT)
+// SIMKL OFFICIAL API
 // --------------------------
 const SIMKL = {
   AUTH: 'https://simkl.com/oauth/authorize',
@@ -75,18 +75,24 @@ const SIMKL = {
 };
 
 // --------------------------
-// STREMIO ADDON MANIFEST
+// STREMIO ADDON MANIFEST (CRITICAL FIX: resources + types)
 // --------------------------
 const manifest = {
-  id: 'org.stremio.simkl.sync',
-  version: '0.0.1',
+  id: 'org.stremio.simkl.sync.final',
+  version: '0.0.2',
   name: 'Stremio Simkl Sync',
-  description: 'Working Simkl scrobbler for Stremio',
+  description: 'Official Simkl Scrobbler for Stremio',
   logo: 'https://i.imgur.com/RM8QpFs.png',
-  resources: ['player'],
+  // ✅ THIS IS THE KEY: Stremio only sends player events if resources includes "player"
+  resources: ['player'], 
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
-  background: '#1e1e2e'
+  background: '#1e1e2e',
+  // ✅ Explicitly define as a player provider
+  player: {
+    types: ['movie', 'series'],
+    idPrefixes: ['tt']
+  }
 };
 
 // --------------------------
@@ -107,7 +113,7 @@ app.use((req, res, next) => {
 });
 
 // --------------------------
-// WEB CONFIG PAGE (WITH TEST BUTTON)
+// WEB CONFIG PAGE
 // --------------------------
 app.get('/configure', (req, res) => {
   const cfg = Config.get();
@@ -134,7 +140,7 @@ app.get('/configure', (req, res) => {
           .btn-install { background:#2196F3; padding:14px; font-size:16px; }
           .btn-test { background:#FF9800; padding:14px; font-size:16px; }
           .btn-secondary { background:#444; }
-          .success { color:#4CAF50; padding:10px; background:#1b2b1f; border-radius:6px; }
+          .success { color:#4CAF50; padding:10px;background:#1b2b1f; border-radius:6px; }
           .info { color:#aaa; font-size:13px; }
       </style>
   </head>
@@ -168,22 +174,16 @@ app.get('/configure', (req, res) => {
       </div>
 
       <div class="card">
-          <h2>🔐 Authenticate</h2>
+          <h2>🔐 Authentication Status</h2>
           <p class="info">Redirect URI: ${redirectUri}</p>
           <a href="/auth/simkl"><button class="btn-secondary">Login to Simkl</button></a>
           ${cfg.simklToken ? '<p class="success">✅ Connected! Token saved.</p>' : '<p class="info">Not connected yet</p>'}
       </div>
 
       <div class="card">
-          <h2>🧪 Test Simkl API</h2>
-          <p class="info">Click to test if Simkl is working (uses test movie "tt1375666" = Inception)</p>
-          <a href="/test-scrobble"><button class="btn-test">Test Scrobble</button></a>
-      </div>
-
-      <div class="card">
-          <h2>📥 Install to Stremio</h2>
-          <a href="${stremioInstall}"><button class="btn-install">📦 Install Addon (v${manifest.version})</button></a>
-          <p class="info" style="margin-top:10px;">Use this URL if needed: ${manifestUrl}</p>
+          <h2>📥 Install Stremio Addon</h2>
+          <a href="${stremioInstall}"><button class="btn-install">📦 Install/Update Addon</button></a>
+          <p class="info">If install fails, use this URL: ${manifestUrl}</p>
       </div>
   </body>
   </html>`;
@@ -237,75 +237,44 @@ app.get('/auth/simkl/callback', async (req, res) => {
     }
     res.send(`<h1 style="color:red;text-align:center;">❌ Auth Failed: ${JSON.stringify(data)}</h1>`);
   } catch (e) {
-    res.send(`<h1 style="color:red;text-align:center;">❌ Server Error: ${e.message}</h1>`);
+    res.send(`<h1 style="color:red;text-align:center;">❌ Error: ${e.message}</h1>`);
   }
 });
 
 // --------------------------
-// 🧪 TEST SIMKL ENDPOINT (TO VERIFY API WORKS)
-// --------------------------
-app.get('/test-scrobble', async (req, res) => {
-  const cfg = Config.get();
-  if (!cfg.simklToken) return res.send('<h1 style="color:red;">❌ No Simkl Token. Authenticate first.</h1>');
-
-  try {
-    // Test scrobble with Inception (tt1375666)
-    const response = await fetch(SIMKL.SCROBBLE, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${cfg.simklToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        movie: { ids: { imdb: 'tt1375666' } },
-        progress: 50,
-        duration: 8880 // 2h28m in seconds
-      })
-    });
-
-    const data = await response.json();
-    console.log('Test Scrobble Response:', data);
-    res.send(`<h1 style="color:green;">✅ Test Scrobble Sent! Check Simkl "Watching Now".</h1><pre>${JSON.stringify(data, null, 2)}</pre>`);
-  } catch (e) {
-    res.send(`<h1 style="color:red;">❌ Test Failed: ${e.message}</h1>`);
-  }
-});
-
-// --------------------------
-// STREMIO PLAYER HOOK (WITH FULL LOGGING)
+// STREMIO PLAYER HOOK (WITH LOGGING)
 // --------------------------
 app.post('/player', async (req, res) => {
-  console.log('📥 Received Player Event:', JSON.stringify(req.body, null, 2));
+  console.log('🎬 STREMIO PLAYER EVENT RECEIVED:', JSON.stringify(req.body, null, 2));
   const cfg = Config.get();
+  
   if (!cfg.simklToken) {
-    console.log('❌ No Simkl Token');
+    console.log('❌ No Token');
     return res.json({ success: false, error: 'No token' });
   }
 
   const { videoId, time, duration, type } = req.body;
   if (!videoId || !time || !duration) {
-    console.log('❌ Missing videoId/time/duration');
+    console.log('❌ Missing Data');
     return res.json({ success: false, error: 'Missing data' });
   }
 
   const progress = Math.round((time / duration) * 100);
   const imdb = videoId.startsWith('tt') ? videoId : null;
-  if (!imdb) {
-    console.log('❌ Not an IMDB ID:', videoId);
-    return res.json({ success: false, error: 'Not IMDB' });
-  }
+  if (!imdb) return res.json({ success: false, error: 'No IMDB' });
 
-  console.log(`🎬 Scrobbling ${type} ${imdb} | Progress: ${progress}%`);
+  console.log(`📊 Progress: ${progress}% | Threshold: ${cfg.watchThreshold}`);
 
   try {
     // 1. Watching Now
     if (cfg.syncWatchingNow && progress < cfg.watchThreshold) {
-      console.log('🔄 Sending to Simkl Watching Now...');
+      console.log('🚀 Sending to Simkl (Watching Now)...');
       const scrobbleRes = await fetch(SIMKL.SCROBBLE, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${cfg.simklToken}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'simkl-api-key': cfg.simklClientId // ✅ Simkl requires this header
         },
         body: JSON.stringify({
           [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb } },
@@ -314,17 +283,18 @@ app.post('/player', async (req, res) => {
         })
       });
       const scrobbleData = await scrobbleRes.json();
-      console.log('✅ Simkl Watching Now Response:', scrobbleData);
+      console.log('✅ Simkl Response:', scrobbleData);
     }
 
     // 2. Mark as Watched
     if (progress >= cfg.watchThreshold && cfg.syncFullProgress) {
-      console.log('✅ Marking as Watched...');
+      console.log('✅ Sending to Simkl (Watched)...');
       const watchedRes = await fetch(SIMKL.HISTORY, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${cfg.simklToken}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'simkl-api-key': cfg.simklClientId // ✅ Simkl requires this header
         },
         body: JSON.stringify({
           [type === 'movie' ? 'movies' : 'episodes']: [{ ids: { imdb } }]
@@ -334,9 +304,9 @@ app.post('/player', async (req, res) => {
       console.log('✅ Simkl Watched Response:', watchedData);
     }
 
-    res.json({ success: true, progress, synced: true });
+    res.json({ success: true, progress });
   } catch (e) {
-    console.error('❌ Scrobble Error:', e.message);
+    console.error('❌ API Call Failed:', e.message);
     res.json({ success: false, error: e.message });
   }
 });
@@ -352,5 +322,5 @@ app.get('/manifest:random?.json', (req, res) => {
 
 // START
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Running on Render | Version: ${manifest.version}`);
+  console.log(`🚀 Server Running | Version: ${manifest.version}`);
 });
