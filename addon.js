@@ -5,9 +5,9 @@ const path = require('path');
 
 const manifest = {
     id: 'org.stremio.simklsync',
-    version: '1.0.0',
+    version: '1.0.1',
     name: 'Simkl Sync',
-    description: 'Sync watch progress to Simkl',
+    description: 'Sync watch progress to Simkl (Official OAuth)',
     types: ['movie', 'series'],
     catalogs: [],
     resources: ['stream'],
@@ -18,79 +18,103 @@ const manifest = {
     },
     config: [
         { key: 'simklClientId', type: 'text', title: '1. Simkl Client ID', required: true },
-        // This field will display the clickable authorize link
-        { key: 'authorizeLink', type: 'text', title: '2. CLICK HERE TO AUTHORIZE', required: false },
-        { key: 'simklAuthToken', type: 'text', title: '3. Simkl Auth Token (Auto-filled)', required: false }
+        // We use a text field to display the fake button
+        { key: 'simklAuthUrl', type: 'text', title: '👉 2. CLICK HERE TO AUTHORIZE (BUTTON STYLE)', required: false },
+        { key: 'simklAuthToken', type: 'text', title: '3. Simkl Auth Token (Auto)', required: false }
     ]
 };
 
 const builder = new addonBuilder(manifest);
-const SIMKL_API = 'https://api.simkl.com';
-const SIMKL_OAUTH = 'https://simkl.com';
+const SIMKL_API = 'shturl.cc/OIqdGe0MyKA';
+const SIMKL_OAUTH = 'shturl.cc/0A4Io2R'; // Official web domain
 const STATE_FILE = path.join(require('os').homedir(), 'simkl_token.json');
 
-// Load saved token from local storage
-let authState = { accessToken: null };
+// Persist token
+let persistentToken = null;
 try {
-    authState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    if (fs.existsSync(STATE_FILE)) {
+        persistentToken = JSON.parse(fs.readFileSync(STATE_FILE)).token;
+    }
 } catch (e) {}
-const saveState = () => fs.writeFileSync(STATE_FILE, JSON.stringify(authState, null, 2));
 
-// Generate the official Simkl OAuth authorize URL
-function getAuthorizeUrl(clientId) {
+// --------------------------
+// OFFICIAL SIMKL OAUTH AUTHORIZE URL
+// --------------------------
+function generateSimklAuthUrl(clientId) {
+    // Use the official Simkl domain (not API)
     return `${SIMKL_OAUTH}/oauth/authorize?client_id=${clientId}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&scope=all`;
+}
+
+// --------------------------
+// EXCHANGE CODE FOR TOKEN
+// --------------------------
+async function exchangeCode(clientId, code) {
+    try {
+        const res = await fetch(`${SIMKL_API}/oauth/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                client_id: clientId,
+                code: code,
+                grant_type: 'authorization_code',
+                redirect_uri: 'urn:ietf:wg:oauth:2.0:oob'
+            })
+        });
+
+        const data = await res.json();
+        if (data.access_token) {
+            // Save token locally so it persists
+            fs.writeFileSync(STATE_FILE, JSON.stringify({ token: data.access_token }));
+            return data.access_token;
+        }
+    } catch (err) {
+        console.error("Token exchange failed:", err);
+    }
+    return null;
 }
 
 builder.defineStreamHandler(async (ctx) => {
     const config = ctx.config || {};
     const clientId = config.simklClientId;
-    let token = config.simklAuthToken || authState.accessToken;
+    let currentToken = config.simklAuthToken || persistentToken;
 
-    // If no token, show the clickable authorize link in the config
-    if (clientId && !token) {
-        const authUrl = getAuthorizeUrl(clientId);
-        // The link will appear in the "CLICK HERE TO AUTHORIZE" field
-        ctx.config.authorizeLink = authUrl;
+    // --------------------------
+    // STEP 1: GENERATE THE AUTHORIZE LINK
+    // --------------------------
+    // If Client ID is entered and no token, show the link (will look like a button)
+    if (clientId && !currentToken) {
+        const authUrl = generateSimklAuthUrl(clientId);
+        // We style it as a button by putting the URL in the title
+        ctx.config.simklAuthUrl = `🔗 CLICK TO OPEN: ${authUrl}`;
     }
 
-    // If the user pastes the code from the authorize URL, exchange it for a token
-    if (clientId && !token && config.authorizeLink && config.authorizeLink.includes('code=')) {
-        const urlParams = new URLSearchParams(config.authorizeLink.split('?')[1]);
-        const code = urlParams.get('code');
-        
-        if (code) {
-            try {
-                const res = await fetch(`${SIMKL_API}/oauth/token`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        client_id: clientId,
-                        code: code,
-                        grant_type: 'authorization_code',
-                        redirect_uri: 'urn:ietf:wg:oauth:2.0:oob'
-                    })
-                });
-                const data = await res.json();
-                if (data.access_token) {
-                    token = data.access_token;
-                    authState.accessToken = token;
-                    saveState();
+    // --------------------------
+    // STEP 2: AUTO-EXCHANGE CODE
+    // --------------------------
+    // If the user pastes the full URL with 'code=' back into this field...
+    if (clientId && !currentToken && config.simklAuthUrl && config.simklAuthUrl.includes('code=')) {
+        try {
+            // Extract the code parameter from the URL
+            const urlParams = new URLSearchParams(config.simklAuthUrl.split('?')[1]);
+            const code = urlParams.get('code');
+
+            if (code) {
+                const token = await exchangeCode(clientId, code);
+                if (token) {
+                    currentToken = token;
                     // Auto-fill the token in the config
                     ctx.config.simklAuthToken = token;
+                    // Clear the code URL to clean up
+                    ctx.config.simklAuthUrl = "✅ Authorization Successful! Token saved.";
                 }
-            } catch (e) {
-                console.error('Token exchange failed:', e);
             }
-        }
+        } catch (e) {}
     }
 
-    // If token exists, auto-fill it in the config
-    if (token) {
-        ctx.config.simklAuthToken = token;
-    }
-
-    // --- Simkl watch progress sync logic ---
-    if (!token || !clientId || !ctx.id.startsWith('tt') || !ctx.state?.time) {
+    // --------------------------
+    // STEP 3: SYNC LOGIC
+    // --------------------------
+    if (!currentToken || !clientId || !ctx.id.startsWith('tt') || !ctx.state?.time) {
         return { streams: [] };
     }
 
@@ -98,9 +122,7 @@ builder.defineStreamHandler(async (ctx) => {
     const duration = ctx.state.time.total || 0;
     const current = ctx.state.time.current || 0;
     const progress = duration ? (current / duration) * 100 : 0;
-    const markAt = +config.markWatchedAt || 80;
 
-    // Helper function for Simkl API requests
     const simklRequest = async (endpoint, method = 'GET', body = null) => {
         const url = new URL(`${SIMKL_API}${endpoint}`);
         url.searchParams.append('client_id', clientId);
@@ -110,7 +132,7 @@ builder.defineStreamHandler(async (ctx) => {
         const headers = {
             'Content-Type': 'application/json',
             'User-Agent': `${manifest.name}/${manifest.version}`,
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${currentToken}`
         };
 
         const opts = { method, headers };
@@ -120,9 +142,8 @@ builder.defineStreamHandler(async (ctx) => {
         return res.ok ? await res.json().catch(() => ({})) : null;
     };
 
-    // Sync watching progress or mark as watched
-    if (ctx.state.paused === false && duration > 0) {
-        if (progress >= markAt) {
+    if (!ctx.state.paused && duration > 0) {
+        if (progress >= 80) { // Mark as watched if 80% is reached
             await simklRequest('/sync/history', 'POST', {
                 watched_at: 'now',
                 progress: 100,
@@ -147,5 +168,4 @@ builder.defineStreamHandler(async (ctx) => {
     return { streams: [] };
 });
 
-const PORT = process.env.PORT || 58694;
-serveHTTP(builder.getInterface(), { port: PORT });
+serveHTTP(builder.getInterface(), { port: process.env.PORT || 58694 });
