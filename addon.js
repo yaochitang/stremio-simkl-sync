@@ -28,7 +28,7 @@ function decrypt(text) {
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
   let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
+  decrypted += cipher.final('utf8');
   return decrypted;
 }
 
@@ -78,11 +78,11 @@ const SIMKL = {
 };
 
 // --------------------------
-// STREMIO ADDON MANIFEST
+// STREMIO ADDON MANIFEST → VERSION 0.0.1
 // --------------------------
 const manifest = {
   id: 'org.stremio.simkl.sync',
-  version: '0.0.1',
+  version: '0.0.1', // ✅ FIXED VERSION
   name: 'Stremio Simkl Sync',
   description: 'Working Simkl scrobbler for Stremio',
   logo: 'https://i.imgur.com/RM8QpFs.png',
@@ -99,15 +99,19 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS
+// CORS + NO CACHE HEADERS (FIX FOR STREMIO CACHING)
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // ✅ FORCE NO CACHE
+  res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
   next();
 });
 
 // --------------------------
-// WEB CONFIG PAGE (YOUR REQUEST)
+// WEB CONFIG PAGE
 // --------------------------
 app.get('/configure', (req, res) => {
   const cfg = Config.get();
@@ -176,6 +180,7 @@ app.get('/configure', (req, res) => {
           <h2>📥 Install to Stremio</h2>
           <a href="${stremioInstall}"><button class="btn-install">📦 Install Addon</button></a>
           <p class="info" style="margin-top:10px;">Manual URL: ${manifestUrl}</p>
+          <p class="info">Version: ${manifest.version}</p>
       </div>
   </body>
   </html>`;
@@ -195,7 +200,7 @@ app.post('/save-config', (req, res) => {
 });
 
 // --------------------------
-// SIMKL OAUTH (APPEARS IN CONNECTED APPS)
+// SIMKL OAUTH
 // --------------------------
 app.get('/auth/simkl', (req, res) => {
   const cfg = Config.get();
@@ -234,7 +239,7 @@ app.get('/auth/simkl/callback', async (req, res) => {
 });
 
 // --------------------------
-// STREMIO SCROBBLE (WORKING)
+// STREMIO SCROBBLE
 // --------------------------
 app.post('/player', async (req, res) => {
   const cfg = Config.get();
@@ -248,7 +253,6 @@ app.post('/player', async (req, res) => {
   if (!imdb) return res.json({});
 
   try {
-    // START SCROBBLE (SHOWS AS WATCHING NOW)
     if (cfg.syncWatchingNow && progress < cfg.watchThreshold) {
       await fetch(SIMKL.SCROBBLE, {
         method: 'POST',
@@ -264,7 +268,6 @@ app.post('/player', async (req, res) => {
       });
     }
 
-    // MARK AS WATCHED
     if (progress >= cfg.watchThreshold && cfg.syncFullProgress) {
       await fetch(SIMKL.WATCHED, {
         method: 'POST',
@@ -292,5 +295,5 @@ app.get('/manifest.json', (req, res) => res.json(manifest));
 
 // START
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Running on Render`);
+  console.log(`✅ Running on Render | Version: ${manifest.version}`);
 });
