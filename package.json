@@ -1,0 +1,12 @@
+{
+    "name": "stremio-simkl-sync",
+    "version": "2.0.0",
+    "main": "addon.js",
+    "scripts": {
+        "start": "node addon.js"
+    },
+    "dependencies": {
+        "node-fetch": "^2.6.7",
+        "stremio-addon-sdk": "^1.6.10"
+    }
+}
