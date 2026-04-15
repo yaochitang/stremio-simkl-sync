@@ -81,7 +81,7 @@ const SIMKL = {
 // STREMIO ADDON MANIFEST → VERSION 0.0.1
 // --------------------------
 const manifest = {
-  id: 'org.stremio.simkl.sync',
+  id: 'org.stremio.simkl.sync.v001',
   version: '0.0.1', // ✅ FIXED VERSION
   name: 'Stremio Simkl Sync',
   description: 'Working Simkl scrobbler for Stremio',
