@@ -75,20 +75,18 @@ const SIMKL = {
 };
 
 // --------------------------
-// STREMIO ADDON MANIFEST (CRITICAL FIX: resources + types)
+// STREMIO ADDON MANIFEST (CRITICAL FIX)
 // --------------------------
 const manifest = {
-  id: 'org.stremio.simkl.sync.final',
-  version: '0.0.2',
-  name: 'Stremio Simkl Sync',
+  id: 'org.stremio.simkl.sync.v2',
+  version: '0.0.3',
+  name: 'Stremio Simkl Sync (V2)',
   description: 'Official Simkl Scrobbler for Stremio',
   logo: 'https://i.imgur.com/RM8QpFs.png',
-  // ✅ THIS IS THE KEY: Stremio only sends player events if resources includes "player"
-  resources: ['player'], 
+  resources: ['player'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
   background: '#1e1e2e',
-  // ✅ Explicitly define as a player provider
   player: {
     types: ['movie', 'series'],
     idPrefixes: ['tt']
@@ -113,7 +111,7 @@ app.use((req, res, next) => {
 });
 
 // --------------------------
-// WEB CONFIG PAGE
+// WEB CONFIG PAGE (WITH TEST BUTTON)
 // --------------------------
 app.get('/configure', (req, res) => {
   const cfg = Config.get();
@@ -142,6 +140,9 @@ app.get('/configure', (req, res) => {
           .btn-secondary { background:#444; }
           .success { color:#4CAF50; padding:10px;background:#1b2b1f; border-radius:6px; }
           .info { color:#aaa; font-size:13px; }
+          .test-result { margin-top:15px; padding:10px; border-radius:6px; }
+          .test-success { background:#1b2b1f; color:#4CAF50; }
+          .test-error { background:#2b1b1b; color:#f44336; }
       </style>
   </head>
   <body>
@@ -178,6 +179,18 @@ app.get('/configure', (req, res) => {
           <p class="info">Redirect URI: ${redirectUri}</p>
           <a href="/auth/simkl"><button class="btn-secondary">Login to Simkl</button></a>
           ${cfg.simklToken ? '<p class="success">✅ Connected! Token saved.</p>' : '<p class="info">Not connected yet</p>'}
+      </div>
+
+      <div class="card">
+          <h2>🧪 Test Scrobble (Manual)</h2>
+          <form method="POST" action="/test-scrobble">
+              <label>Test IMDB ID (e.g., tt1375666)</label>
+              <input type="text" name="imdbId" value="tt1375666" required>
+              <label>Progress % (0-100)</label>
+              <input type="number" name="progress" value="30" min="0" max="100" required>
+              <button type="submit" class="btn-test">🚀 Test Scrobble Now</button>
+          </form>
+          ${req.query.testResult ? `<div class="test-result ${req.query.testResult === 'success' ? 'test-success' : 'test-error'}">${req.query.testResult === 'success' ? '✅ Scrobble sent to Simkl!' : `❌ Error: ${req.query.testResult}`}</div>` : ''}
       </div>
 
       <div class="card">
@@ -242,6 +255,46 @@ app.get('/auth/simkl/callback', async (req, res) => {
 });
 
 // --------------------------
+// MANUAL TEST SCROBBLE ENDPOINT
+// --------------------------
+app.post('/test-scrobble', async (req, res) => {
+  const cfg = Config.get();
+  const { imdbId, progress } = req.body;
+
+  if (!cfg.simklToken) {
+    return res.redirect('/configure?testResult=No+Simkl+Token');
+  }
+
+  try {
+    const scrobbleRes = await fetch(SIMKL.SCROBBLE, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cfg.simklToken}`,
+        'Content-Type': 'application/json',
+        'simkl-api-key': cfg.simklClientId
+      },
+      body: JSON.stringify({
+        movie: { ids: { imdb: imdbId } },
+        progress: parseInt(progress),
+        duration: 120
+      })
+    });
+
+    const scrobbleData = await scrobbleRes.json();
+    console.log('🧪 Test Scrobble Response:', scrobbleData);
+
+    if (scrobbleData.result === 'success') {
+      res.redirect('/configure?testResult=success');
+    } else {
+      res.redirect(`/configure?testResult=${encodeURIComponent(JSON.stringify(scrobbleData))}`);
+    }
+  } catch (e) {
+    console.error('🧪 Test Scrobble Error:', e.message);
+    res.redirect(`/configure?testResult=${encodeURIComponent(e.message)}`);
+  }
+});
+
+// --------------------------
 // STREMIO PLAYER HOOK (WITH LOGGING)
 // --------------------------
 app.post('/player', async (req, res) => {
@@ -274,7 +327,7 @@ app.post('/player', async (req, res) => {
         headers: {
           'Authorization': `Bearer ${cfg.simklToken}`,
           'Content-Type': 'application/json',
-          'simkl-api-key': cfg.simklClientId // ✅ Simkl requires this header
+          'simkl-api-key': cfg.simklClientId
         },
         body: JSON.stringify({
           [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb } },
@@ -294,7 +347,7 @@ app.post('/player', async (req, res) => {
         headers: {
           'Authorization': `Bearer ${cfg.simklToken}`,
           'Content-Type': 'application/json',
-          'simkl-api-key': cfg.simklClientId // ✅ Simkl requires this header
+          'simkl-api-key': cfg.simklClientId
         },
         body: JSON.stringify({
           [type === 'movie' ? 'movies' : 'episodes']: [{ ids: { imdb } }]
