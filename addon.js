@@ -5,7 +5,7 @@ const path = require('path');
 
 const manifest = {
     id: 'org.stremio.simklsyncpro',
-    version: '2.0.0',
+    version: '2.1.0', // Bumped version to indicate fix
     name: 'Stremio Simkl Sync Pro',
     description: 'Watching Now, progress sync, and 80% watched marker for Simkl',
     logo: 'https://simkl.com/images/logos/simkl_logo_white.svg',
@@ -148,5 +148,9 @@ builder.definePlayerHandler(async (ctx) => {
     return { play: {} };
 });
 
+// =====================
+// FIXED SERVER STARTUP
+// =====================
+const addonInterface = builder.getInterface();
 const PORT = process.env.PORT || 58694;
-serveHTTP(builder.getInterface(), { port: PORT });
+serveHTTP(addonInterface, { port: PORT });
