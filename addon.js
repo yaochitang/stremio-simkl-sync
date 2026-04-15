@@ -5,20 +5,28 @@ const path = require('path');
 
 // --- Addon Manifest (fixed, no "player" resource) ---
 const manifest = {
-    id: 'org.stremio.simklsync',
-    version: '2.2.0',
-    name: 'Stremio Simkl Sync',
-    description: 'Watching Now, progress sync, and configurable watched marker for Simkl',
-    logo: 'https://simkl.com/images/logos/simkl_logo_white.svg',
-    background: 'https://simkl.com/images/backgrounds/simkl_background.jpg',
+    id: 'org.stremio.simklsyncpro',
+    version: '2.4.0',
+    name: 'Stremio Simkl Sync Pro',
+    description: 'Watching Now, progress sync, and 80% watched marker',
+    logo: 'shturl.cc/BAYLELh7CbOrELHGQPgl0vtcydGTjJuEjt3OLcJht',
+    background: 'shturl.cc/QRoex1mduFZU4chrD9A9RMQhUeAWhFg3DgbWuT1wxIHtby7',
     types: ['movie', 'series'],
     catalogs: [],
-    resources: ['stream'], // Only valid resource for playback events
+    resources: ['stream'],
     idPrefixes: ['tt'],
+
+    // ✅ THIS ENABLES CONFIGURE BUTTON
+    behaviorHints: {
+        configurable: true,
+        configurationRequired: true
+    },
+
+    // ✅ YOUR SETTINGS (token, 80% watched, sync interval)
     config: [
         { key: 'simklAuthToken', type: 'text', title: 'Simkl Auth Token', required: true },
-        { key: 'markWatchedAt', type: 'number', title: 'Mark as Watched at (%)', default: 80, required: true },
-        { key: 'syncInterval', type: 'number', title: 'Progress Sync Interval (seconds)', default: 30, required: true }
+        { key: 'markWatchedAt', type: 'number', title: 'Mark as Watched at (%)', default: 80 },
+        { key: 'syncInterval', type: 'number', title: 'Progress Sync Interval (seconds)', default: 30 }
     ]
 };
 
