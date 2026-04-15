@@ -68,10 +68,10 @@ Config.load();
 // REAL SIMKL API ENDPOINTS (NO SHORTENERS)
 // --------------------------
 const SIMKL = {
-  AUTH: 'https://simkl.com/oauth/authorize',
-  TOKEN: 'https://api.simkl.com/oauth/token',
-  SCROBBLE_START: 'https://api.simkl.com/scrobble/start',
-  SYNC_HISTORY: 'https://api.simkl.com/sync/history'
+  AUTH: 'shturl.cc/NMt0g56ppqgqU7lbO1BxfAUS9c7',
+  TOKEN: 'shturl.cc/fqfN4xzeIIZ5DL8LwYbIo1n',
+  SCROBBLE_START: 'shturl.cc/vrkquG9NkCEv5BcMhx2ZcVMnz2',
+  SYNC_HISTORY: 'shturl.cc/fea7qbVqdWr1XJNGqgBxxfok'
 };
 
 // --------------------------
@@ -206,12 +206,13 @@ app.post('/save-config', (req, res) => {
 });
 
 // --------------------------
-// SIMKL OAUTH
+// SIMKL OAUTH (FIXED SCOPE)
 // --------------------------
 app.get('/auth/simkl', (req, res) => {
   const cfg = Config.get();
   const redirect = `https://${req.hostname}/auth/simkl/callback`;
-  const url = `${SIMKL.AUTH}?client_id=${cfg.simklClientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=scrobble`;
+  // FIXED: scope=scrobble:write (per Simkl docs)
+  const url = `${SIMKL.AUTH}?client_id=${cfg.simklClientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=scrobble:write`;
   res.redirect(url);
 });
 
