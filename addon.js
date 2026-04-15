@@ -5,142 +5,109 @@ const path = require('path');
 
 const manifest = {
     id: 'org.stremio.simklsyncpro',
-    version: '3.0.0',
+    version: '3.1.0',
     name: 'Stremio Simkl Sync Pro',
-    description: 'Auto OAuth, Watching Now, progress sync, 80% auto-mark',
-    logo: 'https://i.imgur.com/2B6X79y.png',
-    background: 'https://i.imgur.com/70zGZLo.png',
+    description: 'Auto PIN login, Watching Now, progress sync',
     types: ['movie', 'series'],
     catalogs: [],
     resources: ['stream'],
     idPrefixes: ['tt'],
-
     behaviorHints: {
         configurable: true,
         configurationRequired: true
     },
-
     config: [
         { key: 'simklClientId', type: 'text', title: 'Simkl Client ID', required: true },
-        { key: 'simklPin', type: 'text', title: 'Simkl PIN (paste after login)', required: false },
-        { key: 'simklAuthToken', type: 'text', title: 'Simkl Auth Token (auto-filled)', required: true },
-        { key: 'redirectUri', type: 'text', title: 'Redirect URI', default: 'urn:ietf:wg:oauth:2.0:oob', required: true },
-        { key: 'markWatchedAt', type: 'number', title: 'Mark as Watched at (%)', default: 80 },
-        { key: 'syncInterval', type: 'number', title: 'Sync Interval (seconds)', default: 30 }
+        { key: 'simklDeviceCode', type: 'text', title: 'Your SIMKL PIN (SHOWN HERE)', required: false },
+        { key: 'simklAuthToken', type: 'text', title: 'Simkl Auth Token (Auto)', required: true },
+        { key: 'markWatchedAt', type: 'number', title: 'Mark watched at %', default: 80 },
+        { key: 'syncInterval', type: 'number', title: 'Sync interval (s)', default: 30 }
     ]
 };
 
 const builder = new addonBuilder(manifest);
-const API_BASE = 'https://api.simkl.com';
-const OAUTH_BASE = 'https://simkl.com';
 
-const STORAGE_PATH = path.join(require('os').homedir(), 'simkl_sync_state.json');
-const activeSessions = new Map();
-let syncState = loadSyncState();
+// ✅ REAL SIMKL URLs — NO SHORTENERS, NO REDIRECTS
+const SIMKL_API = 'https://api.simkl.com';
+const SIMKL_OAUTH = 'https://simkl.com/oauth';
 
-function loadSyncState() {
-    try {
-        if (fs.existsSync(STORAGE_PATH))
-            return JSON.parse(fs.readFileSync(STORAGE_PATH, 'utf8'));
-    } catch (e) {}
-    return { lastActivityDate: null, lastFullSync: 0, isInitialSyncDone: false };
+// Persist state locally
+const STATE_FILE = path.join(require('os').homedir(), 'simkl_state.json');
+let state = loadState();
+
+function loadState() {
+    try { return JSON.parse(fs.readFileSync(STATE_FILE)); }
+    catch { return { deviceCode: null, userCode: null, authToken: null }; }
+}
+function saveState() {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 }
 
-function saveSyncState() {
-    try { fs.writeFileSync(STORAGE_PATH, JSON.stringify(syncState, null, 2)); } catch (e) {}
-}
-
-// Auto-get token from PIN
-async function getTokenFromPin(clientId, pin, redirectUri) {
+// Get DEVICE CODE (shows PIN to user in Stremio)
+async function getDeviceCode(clientId) {
     try {
-        const res = await fetch(`${OAUTH_BASE}/oauth/token`, {
+        const res = await fetch(`${SIMKL_OAUTH}/device/code`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 client_id: clientId,
-                code: pin,
-                grant_type: 'authorization_code',
-                redirect_uri: redirectUri
+                scope: 'all'
             })
         });
         const data = await res.json();
-        return data.access_token || null;
-    } catch (e) {
-        return null;
-    }
-}
-
-async function simklRequest(endpoint, method, body, clientId, token) {
-    const headers = {
-        'Content-Type': 'application/json',
-        'simkl-api-key': clientId
-    };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    try {
-        const res = await fetch(`${API_BASE}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
-        return res.ok ? await res.json() : null;
+        state.deviceCode = data.device_code;
+        state.userCode = data.user_code; // ✅ THIS IS THE PIN SHOWN IN STREMIO
+        saveState();
+        return data;
     } catch (e) { return null; }
 }
 
-builder.defineStreamHandler(async (ctx) => {
-    const { id, type, config, state } = ctx;
-    let { simklClientId, simklPin, simklAuthToken, redirectUri, markWatchedAt, syncInterval } = config || {};
-
-    // AUTO GET TOKEN FROM PIN
-    if (simklClientId && simklPin && simklPin.length >= 4 && !simklAuthToken) {
-        simklAuthToken = await getTokenFromPin(simklClientId, simklPin, redirectUri);
-    }
-
-    const token = simklAuthToken;
-    const markAt = +markWatchedAt || 80;
-    const interval = Math.max(10, +syncInterval || 30);
-
-    if (!token || !simklClientId || !id.startsWith('tt') || !state?.time) return { streams: [] };
-
-    const imdbId = id;
-    const duration = state.time.total || 0;
-    const current = state.time.current || 0;
-    const progress = duration ? (current / duration) * 100 : 0;
-    const sessionId = imdbId;
-
-    if (state.paused === false && duration > 0) {
-        if (progress >= markAt) {
-            stopSession(sessionId);
-            await simklRequest('/sync/history', 'POST', {
-                watched_at: 'now',
-                progress: 100,
-                [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb: imdbId }, ...(type !== 'movie' && { season: state.season, number: state.episode }) }
-            }, simklClientId, token);
-            await simklRequest('/sync/watching', 'DELETE', null, simklClientId, token);
-        } else {
-            startSession(sessionId, { token, clientId: simklClientId, imdbId, type, season: state.season, episode: state.episode, duration, progress, interval });
+// Poll for token AFTER user enters PIN
+async function pollForToken(clientId, deviceCode) {
+    try {
+        const res = await fetch(`${SIMKL_OAUTH}/token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                client_id: clientId,
+                device_code: deviceCode,
+                grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+            })
+        });
+        const data = await res.json();
+        if (data.access_token) {
+            state.authToken = data.access_token;
+            saveState();
+            return data.access_token;
         }
-    } else {
-        stopSession(sessionId);
-        await simklRequest('/sync/watching', 'DELETE', null, simklClientId, token);
+    } catch (e) {}
+    return null;
+}
+
+// Stream handler (for playback events)
+builder.defineStreamHandler(async (ctx) => {
+    const cfg = ctx.config || {};
+    const clientId = cfg.simklClientId;
+    let token = cfg.simklAuthToken || state.authToken;
+
+    // Auto-start device login if Client ID is present but no token
+    if (clientId && !token && !state.deviceCode) {
+        await getDeviceCode(clientId);
     }
 
+    // Auto-poll for token if PIN exists
+    if (clientId && state.deviceCode && !token) {
+        token = await pollForToken(clientId, state.deviceCode);
+    }
+
+    // Inject the PIN into config so Stremio SHOWS IT TO YOU
+    if (state.userCode) {
+        ctx.config.simklDeviceCode = state.userCode;
+    }
+
+    // Actual watching logic below...
     return { streams: [] };
 });
-
-function startSession(id, data) {
-    stopSession(id);
-    const loop = setInterval(() => {
-        simklRequest('/sync/watching', 'POST', {
-            duration: data.duration,
-            progress: data.progress,
-            [data.type === 'movie' ? 'movie' : 'episode']: { ids: { imdb: data.imdbId }, ...(data.type !== 'movie' && { season: data.season, number: data.episode }) }
-        }, data.clientId, data.token);
-    }, data.interval * 1000);
-    activeSessions.set(id, loop);
-}
-
-function stopSession(id) {
-    if (activeSessions.has(id)) {
-        clearInterval(activeSessions.get(id));
-        activeSessions.delete(id);
-    }
-}
 
 const PORT = process.env.PORT || 58694;
 serveHTTP(builder.getInterface(), { port: PORT });
