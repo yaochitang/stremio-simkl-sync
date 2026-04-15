@@ -10,8 +10,7 @@ const path = require('path');
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 56565;
 
-// SECURE ENCRYPTION (CONFIG NOT READABLE)
-// Use Render env var for encryption key (never hardcode)
+// SECURE ENCRYPTION
 const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || 'StremioSimklSync_Render_2025!';
 const ENCRYPTION_KEY = crypto.scryptSync(ENCRYPTION_SECRET, 'render_salt', 32);
 const IV_LENGTH = 16;
@@ -34,7 +33,7 @@ function decrypt(text) {
 }
 
 // --------------------------
-// PERSISTENT ENCRYPTED CONFIG (Render Compatible)
+// PERSISTENT ENCRYPTED CONFIG
 // --------------------------
 const CONFIG_DIR = IS_PRODUCTION ? '/opt/render/config' : __dirname;
 if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -71,11 +70,11 @@ Config.load();
 // SIMKL OFFICIAL API ENDPOINTS
 // --------------------------
 const SIMKL_API = {
-  AUTH: 'https://simkl.com/oauth/authorize',
-  TOKEN: 'https://api.simkl.com/oauth/token',
-  SCROBBLE: 'https://api.simkl.com/scrobble/start',
-  WATCHING: 'https://api.simkl.com/scrobble/watching',
-  COMPLETE: 'https://api.simkl.com/scrobble/stop'
+  AUTH: 'shturl.cc/0RfC7CpZrHI93lbjR6c2WzL',
+  TOKEN: 'shturl.cc/1u4zBx6bwFVRYPNRU7GtszV',
+  SCROBBLE: 'shturl.cc/9GWHb9aQNOs0EfmPgRKepp6W7L',
+  WATCHING: 'shturl.cc/4NL2QWgsDLXJ0UZA6AlW7l5Op1KOg',
+  COMPLETE: 'shturl.cc/fukM7GEjTM9Kx2UkIMYpmtoJU'
 };
 
 // --------------------------
@@ -83,7 +82,7 @@ const SIMKL_API = {
 // --------------------------
 const manifest = {
   id: 'org.stremio.simklsync.render',
-  version: '2.0.0',
+  version: '2.1.0',
   name: 'Stremio Simkl Sync',
   description: 'Sync Stremio watch progress to Simkl (Render Hosted)',
   logo: 'https://i.imgur.com/RM8QpFs.png',
@@ -91,32 +90,117 @@ const manifest = {
   catalogs: [],
   resources: ['player'],
   types: ['movie', 'series'],
-  idPrefixes: ['tt'],
-  config: [
-    { key: 'simklClientId', type: 'text', label: 'Simkl Client ID', required: true },
-    { key: 'simklClientSecret', type: 'password', label: 'Simkl Client Secret', required: true },
-    { key: 'watchThreshold', type: 'number', label: 'Auto-Watch % Threshold', default: 80 },
-    { key: 'syncWatchingNow', type: 'boolean', label: 'Sync "Watching Now"', default: true },
-    { key: 'syncFullProgress', type: 'boolean', label: 'Sync Full Progress', default: true }
-  ]
+  idPrefixes: ['tt']
 };
 
 // --------------------------
-// EXPRESS SERVER (RENDER OPTIMIZED)
+// EXPRESS SERVER
 // --------------------------
 const app = express();
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// RENDER CORS + HTTPS SECURITY
+// CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  if (IS_PRODUCTION && !req.secure && req.headers['x-forwarded-proto'] !== 'https') {
-    return res.redirect(`https://${req.headers.host}${req.url}`);
-  }
   next();
+});
+
+// --------------------------
+// 🔥 WEB CONFIGURATION PAGE (AT /configure)
+// --------------------------
+app.get('/configure', (req, res) => {
+  const cfg = Config.get();
+  const host = req.hostname;
+  const redirectUri = `https://${host}/auth/simkl/callback`;
+
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+      <meta charset="UTF-8">
+      <title>Stremio Simkl Sync - Config</title>
+      <style>
+          * { box-sizing: border-box; font-family: Arial, sans-serif; }
+          body { background: #121212; color: #fff; max-width: 600px; margin: 40px auto; padding: 20px; }
+          .card { background: #1e1e2e; padding: 25px; border-radius: 12px; margin-bottom: 20px; }
+          h1 { color: #7CB342; margin-top: 0; }
+          label { display: block; margin: 12px 0 6px; font-weight: bold; }
+          input, select, button { width: 100%; padding: 12px; border-radius: 6px; border: none; font-size: 16px; margin-bottom: 8px; }
+          input, select { background: #2d2d3f; color: white; }
+          button { background: #7CB342; color: white; cursor: pointer; font-weight: bold; }
+          button.secondary { background: #444; }
+          .info { color: #aaa; font-size: 14px; margin-top: -5px; margin-bottom: 10px; }
+          .success { color: #4CAF50; padding: 10px; background: rgba(76,175,80,0.1); border-radius: 6px; }
+          .line { margin: 20px 0; border-top: 1px solid #333; }
+      </style>
+  </head>
+  <body>
+      <div class="card">
+          <h1>⚙️ Stremio Simkl Sync Config</h1>
+          <p class="info">All settings are saved securely (encrypted)</p>
+
+          <form method="POST" action="/save-config">
+              <label>Simkl Client ID</label>
+              <input type="text" name="simklClientId" value="${cfg.simklClientId || ''}" required>
+
+              <label>Simkl Client Secret</label>
+              <input type="password" name="simklClientSecret" value="${cfg.simklClientSecret || ''}" required>
+
+              <div class="line"></div>
+
+              <label>Auto-Mark Watched at %</label>
+              <input type="number" name="watchThreshold" min="1" max="100" value="${cfg.watchThreshold}" required>
+              <p class="info">Default: 80%</p>
+
+              <label>Sync "Watching Now" to Simkl?</label>
+              <select name="syncWatchingNow">
+                  <option value="true" ${cfg.syncWatchingNow ? 'selected' : ''}>Yes</option>
+                  <option value="false" ${!cfg.syncWatchingNow ? 'selected' : ''}>No</option>
+              </select>
+
+              <label>Sync Full Watch Progress?</label>
+              <select name="syncFullProgress">
+                  <option value="true" ${cfg.syncFullProgress ? 'selected' : ''}>Yes</option>
+                  <option value="false" ${!cfg.syncFullProgress ? 'selected' : ''}>No</option>
+              </select>
+
+              <button type="submit">💾 Save Settings</button>
+          </form>
+      </div>
+
+      <div class="card">
+          <h2>🔐 Authenticate with Simkl</h2>
+          <p class="info">Redirect URI for Simkl Dev Portal:</p>
+          <input type="text" readonly value="${redirectUri}">
+          <a href="/auth/simkl"><button class="secondary">🔗 Login to Simkl</button></a>
+          ${cfg.simklToken ? '<p class="success">✅ Authenticated!</p>' : '<p class="info">Not authenticated yet</p>'}
+      </div>
+
+      <div class="card">
+          <h2>📥 Add to Stremio</h2>
+          <input type="text" readonly value="https://${host}/manifest.json">
+          <p class="info">Copy this URL into Stremio → Addons → Install from URL</p>
+      </div>
+  </body>
+  </html>
+  `;
+  res.send(html);
+});
+
+// Save config from web UI
+app.post('/save-config', (req, res) => {
+  const { simklClientId, simklClientSecret, watchThreshold, syncWatchingNow, syncFullProgress } = req.body;
+  Config.save({
+    simklClientId,
+    simklClientSecret,
+    watchThreshold: parseInt(watchThreshold),
+    syncWatchingNow: syncWatchingNow === 'true',
+    syncFullProgress: syncFullProgress === 'true'
+  });
+  res.redirect('/configure?saved=1');
 });
 
 // Manifest
@@ -125,25 +209,12 @@ app.get('/manifest.json', (req, res) => {
   res.json(manifest);
 });
 
-// Save Addon Settings
-app.post('/configure', (req, res) => {
-  try {
-    Config.save(req.body);
-    res.json({ success: true, message: 'Config saved securely' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 // Simkl OAuth Login
 app.get('/auth/simkl', (req, res) => {
   const cfg = Config.get();
-  if (!cfg.simklClientId) return res.status(400).send('Set Simkl Client ID first!');
+  if (!cfg.simklClientId) return res.status(400).send('Set Client ID first! Go to /configure');
 
-  const redirectUri = IS_PRODUCTION
-    ? `https://${req.hostname}/auth/simkl/callback`
-    : `http://localhost:${PORT}/auth/simkl/callback`;
-
+  const redirectUri = `https://${req.hostname}/auth/simkl/callback`;
   const authUrl = new URL(SIMKL_API.AUTH);
   authUrl.searchParams.set('client_id', cfg.simklClientId);
   authUrl.searchParams.set('redirect_uri', redirectUri);
@@ -153,7 +224,7 @@ app.get('/auth/simkl', (req, res) => {
   res.redirect(authUrl.toString());
 });
 
-// Simkl OAuth Callback (Render HTTPS Ready)
+// Simkl OAuth Callback
 app.get('/auth/simkl/callback', async (req, res) => {
   const cfg = Config.get();
   const { code } = req.query;
@@ -161,10 +232,7 @@ app.get('/auth/simkl/callback', async (req, res) => {
   if (!code) return res.send('<h1>❌ Auth failed: No code</h1>');
 
   try {
-    const redirectUri = IS_PRODUCTION
-      ? `https://${req.hostname}/auth/simkl/callback`
-      : `http://localhost:${PORT}/auth/simkl/callback`;
-
+    const redirectUri = `https://${req.hostname}/auth/simkl/callback`;
     const tokenRes = await fetch(SIMKL_API.TOKEN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -180,7 +248,7 @@ app.get('/auth/simkl/callback', async (req, res) => {
     const tokenData = await tokenRes.json();
     if (tokenData.access_token) {
       Config.save({ simklToken: tokenData.access_token });
-      res.send('<h1>✅ Authenticated! Close this tab.</h1>');
+      res.send('<h1>✅ Authenticated! You can close this tab.</h1>');
     } else {
       res.send(`<h1>❌ Failed: ${tokenData.error || 'Unknown'}</h1>`);
     }
@@ -189,9 +257,7 @@ app.get('/auth/simkl/callback', async (req, res) => {
   }
 });
 
-// --------------------------
-// STREMIO PLAYER SCROBBLE HOOK (CORE FUNCTIONALITY)
-// --------------------------
+// Stremio Player Scrobble Hook
 app.post('/player', async (req, res) => {
   const cfg = Config.get();
   if (!cfg.simklToken) return res.json({});
@@ -210,7 +276,6 @@ app.post('/player', async (req, res) => {
       progress
     };
 
-    // 1. Watching Now (Real-time)
     if (cfg.syncWatchingNow && progress < cfg.watchThreshold) {
       await fetch(SIMKL_API.WATCHING, {
         method: 'POST',
@@ -222,7 +287,6 @@ app.post('/player', async (req, res) => {
       });
     }
 
-    // 2. Auto-Mark Watched at X%
     if (progress >= cfg.watchThreshold && cfg.syncFullProgress) {
       await fetch(SIMKL_API.COMPLETE, {
         method: 'POST',
@@ -240,13 +304,13 @@ app.post('/player', async (req, res) => {
   }
 });
 
-// Health Check (Render Required)
+// Health Check
 app.get('/', (req, res) => {
-  res.send('✅ Stremio Simkl Sync is running on Render!');
+  res.redirect('/configure');
 });
 
 // Start Server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Running on port ${PORT} | Production: ${IS_PRODUCTION}`);
-  console.log(`🔐 Config stored at: ${CONFIG_PATH}`);
+  console.log(`✅ Running on port ${PORT}`);
+  console.log(`🔐 Config page: https://${process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost:'+PORT}/configure`);
 });
