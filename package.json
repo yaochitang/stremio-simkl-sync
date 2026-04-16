@@ -1,6 +1,6 @@
 {
   "name": "stremio-simkl-sync",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "main": "addon.js",
   "dependencies": {
     "express": "^4.19.2",
