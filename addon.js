@@ -27,7 +27,7 @@ function decrypt(text) {
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
   let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += cipher.final('utf8');
+  decrypted += decipher.final('utf8');
   return decrypted;
 }
 
@@ -65,7 +65,7 @@ const Config = {
 Config.load();
 
 // --------------------------
-// REAL SIMKL API ENDPOINTS
+// REAL SIMKL API ENDPOINTS (NO SHORTENERS)
 // --------------------------
 const SIMKL = {
   AUTH: 'https://simkl.com/oauth/authorize',
@@ -81,7 +81,7 @@ const manifest = {
   id: 'org.stremio.simkl.sync.final',
   version: '1.0.0',
   name: 'Stremio Simkl Sync',
-  description: 'Scrobble Stremio to Simkl',
+  description: 'Scrobble Stremio playback to Simkl',
   logo: 'https://i.imgur.com/RM8QpFs.png',
   resources: ['player'],
   types: ['movie', 'series'],
@@ -275,6 +275,8 @@ app.get('/test-scrobble', async (req, res) => {
     });
 
     const data = await response.json();
+    console.log("SIMKL TEST RESPONSE:", data);
+
     if (data.id && data.id > 0) {
       res.send('<h1 style="color:green;text-align:center;">✅ SUCCESS — Scrobble sent!</h1>');
     } else {
@@ -286,9 +288,11 @@ app.get('/test-scrobble', async (req, res) => {
 });
 
 // --------------------------
-// STREMIO PLAYER HOOK (100% FIXED)
+// STREMIO PLAYER HOOK (FULLY FIXED)
 // --------------------------
 app.post('/player', async (req, res) => {
+  console.log("✅ STREMIO PLAYER RECEIVED:", req.body);
+
   try {
     const cfg = Config.get();
     if (!cfg.simklToken) {
@@ -316,7 +320,7 @@ app.post('/player', async (req, res) => {
       url.searchParams.set('app-name', 'StremioSimklSync');
       url.searchParams.set('app-version', manifest.version);
 
-      await fetch(url.toString(), {
+      const resp = await fetch(url.toString(), {
         method: 'POST',
         headers: {
           'Authorization': authHeader,
@@ -330,6 +334,9 @@ app.post('/player', async (req, res) => {
           duration: durationSec
         })
       });
+
+      const data = await resp.json();
+      console.log("🎬 SCROBBLE SENT:", data);
     }
 
     // Mark Watched
@@ -346,10 +353,12 @@ app.post('/player', async (req, res) => {
           [type === 'movie' ? 'movies' : 'episodes']: [{ ids: { imdb } }]
         })
       });
+      console.log("✅ MARKED AS WATCHED");
     }
 
     res.json({ success: true });
   } catch (e) {
+    console.error("PLAYER ERROR:", e);
     res.json({ success: false, error: e.message });
   }
 });
@@ -358,6 +367,7 @@ app.post('/player', async (req, res) => {
 // MANIFEST & ROUTES
 // --------------------------
 app.get('/manifest:random?.json', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.json(manifest);
 });
 
@@ -366,6 +376,6 @@ app.get('/', (req, res) => res.redirect('/configure'));
 // --------------------------
 // START SERVER
 // --------------------------
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0', () => {
   console.log(`✅ Server running on port ${PORT} | v${manifest.version}`);
 });
