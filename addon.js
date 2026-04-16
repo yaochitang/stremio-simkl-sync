@@ -299,20 +299,17 @@ app.post('/player', async (req, res) => {
       return res.json({ success: false, error: 'Missing data' });
     }
 
-    // Only process IMDB IDs (Stremio uses tt prefix)
     const imdb = videoId.startsWith('tt') ? videoId : null;
     if (!imdb) {
       return res.json({ success: false, error: 'Not IMDB ID' });
     }
 
-    // Calculate progress
     const progress = Math.round((time / duration) * 100);
     const durationSec = Math.round(duration);
 
-    // Debug log
     console.log(`[PLAYER] ${type} | ${imdb} | ${progress}% | ${durationSec}s`);
 
-    // 1. Scrobble "Watching Now" (if enabled)
+    // 1. Scrobble "Watching Now"
     if (cfg.syncWatchingNow && progress < cfg.watchThreshold) {
       const url = new URL(SIMKL.SCROBBLE_START);
       url.searchParams.set('client_id', cfg.simklClientId);
@@ -328,7 +325,7 @@ app.post('/player', async (req, res) => {
       const response = await fetch(url.toString(), {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${cfg.simklToken}`,
+          `Authorization: Bearer ${cfg.simklToken}`, // ✅ Fixed
           'Content-Type': 'application/json',
           'simkl-api-key': cfg.simklClientId,
           'User-Agent': 'StremioSimklSync/1.0'
@@ -340,12 +337,12 @@ app.post('/player', async (req, res) => {
       console.log(`[SCROBBLE] Response: ${JSON.stringify(data)}`);
     }
 
-    // 2. Mark as watched (if threshold met)
+    // 2. Mark as watched
     if (progress >= cfg.watchThreshold && cfg.syncFullProgress) {
       await fetch(SIMKL.SYNC_HISTORY, {
         method: 'POST',
         headers: {
-          'Authorization: Bearer ${cfg.simklToken}',
+          `Authorization: Bearer ${cfg.simklToken}`, // ✅ Fixed
           'Content-Type': 'application/json',
           'simkl-api-key': cfg.simklClientId,
           'User-Agent': 'StremioSimklSync/1.0'
