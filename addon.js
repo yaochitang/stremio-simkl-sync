@@ -72,13 +72,13 @@ Config.load();
 // --------------------------
 const SIMKL_API = {
   OAUTH: {
-    AUTH:  "shturl.cc/CdBz8lK7PCCFWnKI2OYHoex",
-    TOKEN: "shturl.cc/kFdF03GtBglMpw3D7POCFKO"
+    AUTH:  "https://simkl.com/oauth/authorize",
+    TOKEN: "https://api.simkl.com/oauth/token"
   },
   SCROBBLE: {
-    START: "shturl.cc/2lHOJBHZTK4qyvUN93XR1zWL3y",
-    PAUSE: "shturl.cc/L4uAZQhblUwKX5bTm3j2aaMZQ6",
-    STOP:  "shturl.cc/emBudw9ViIyMiF8Hu0RTnJYrS"
+    START: "https://api.simkl.com/scrobble/start",
+    PAUSE: "https://api.simkl.com/scrobble/pause",
+    STOP:  "https://api.simkl.com/scrobble/stop"
   }
 };
 
@@ -143,7 +143,7 @@ label{display:block;margin:12px 0 5px;font-weight:bold;}
 input,select,button{width:100%;padding:12px;border-radius:6px;border:none;font-size:15px;margin-bottom:8px;background:#2d2d3f;color:white;}
 button{background:#7CB342;cursor:pointer;}
 .btn-install{background:#2196F3;}
-.btn-test{background:#FF9800;}
+.btn-test{background:#FF980background:#FF9800;}
 </style>
 </head>
 <body>
