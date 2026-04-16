@@ -2,7 +2,6 @@ const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
 const app = express();
-require('dotenv').config();
 
 // --------------------------
 // STREAMIO ADDON CONSTANTS (VERSION 0.0.1)
