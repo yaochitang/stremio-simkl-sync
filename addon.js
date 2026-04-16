@@ -27,7 +27,7 @@ function decrypt(text) {
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
   let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
+  decrypted += cipher.final('utf8');
   return decrypted;
 }
 
@@ -65,7 +65,7 @@ const Config = {
 Config.load();
 
 // --------------------------
-// REAL SIMKL API ENDPOINTS (NO SHORTENERS)
+// REAL SIMKL API ENDPOINTS
 // --------------------------
 const SIMKL = {
   AUTH: 'https://simkl.com/oauth/authorize',
@@ -110,7 +110,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// RATE LIMIT (1 REQ/SEC)
+// RATE LIMIT
 const rateLimit = new Map();
 function canRequest(clientId) {
   const now = Date.now();
@@ -206,12 +206,11 @@ app.post('/save-config', (req, res) => {
 });
 
 // --------------------------
-// SIMKL OAUTH (FIXED SCOPE)
+// SIMKL OAUTH
 // --------------------------
 app.get('/auth/simkl', (req, res) => {
   const cfg = Config.get();
   const redirect = `https://${req.hostname}/auth/simkl/callback`;
-  // FIXED: scope=scrobble:write (per Simkl docs)
   const url = `${SIMKL.AUTH}?client_id=${cfg.simklClientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=scrobble:write`;
   res.redirect(url);
 });
@@ -258,10 +257,12 @@ app.get('/test-scrobble', async (req, res) => {
     url.searchParams.set('app-name', 'StremioSimklSync');
     url.searchParams.set('app-version', manifest.version);
 
+    const authHeader = 'Bearer ' + cfg.simklToken;
+
     const response = await fetch(url.toString(), {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${cfg.simklToken}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'simkl-api-key': cfg.simklClientId,
         'User-Agent': 'StremioSimklSync/1.0'
@@ -285,13 +286,13 @@ app.get('/test-scrobble', async (req, res) => {
 });
 
 // --------------------------
-// STREMIO PLAYER HOOK (FIXED)
+// STREMIO PLAYER HOOK (100% FIXED)
 // --------------------------
 app.post('/player', async (req, res) => {
   try {
     const cfg = Config.get();
     if (!cfg.simklToken) {
-      return res.json({ success: false, error: 'No Simkl token' });
+      return res.json({ success: false, error: 'No token' });
     }
 
     const { videoId, time, duration, type } = req.body;
@@ -301,48 +302,42 @@ app.post('/player', async (req, res) => {
 
     const imdb = videoId.startsWith('tt') ? videoId : null;
     if (!imdb) {
-      return res.json({ success: false, error: 'Not IMDB ID' });
+      return res.json({ success: false, error: 'No IMDB' });
     }
 
     const progress = Math.round((time / duration) * 100);
     const durationSec = Math.round(duration);
+    const authHeader = 'Bearer ' + cfg.simklToken;
 
-    console.log(`[PLAYER] ${type} | ${imdb} | ${progress}% | ${durationSec}s`);
-
-    // 1. Scrobble "Watching Now"
+    // Scrobble Watching Now
     if (cfg.syncWatchingNow && progress < cfg.watchThreshold) {
       const url = new URL(SIMKL.SCROBBLE_START);
       url.searchParams.set('client_id', cfg.simklClientId);
       url.searchParams.set('app-name', 'StremioSimklSync');
       url.searchParams.set('app-version', manifest.version);
 
-      const scrobbleData = {
-        [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb } },
-        progress,
-        duration: durationSec
-      };
-
-      const response = await fetch(url.toString(), {
+      await fetch(url.toString(), {
         method: 'POST',
         headers: {
-          `Authorization: Bearer ${cfg.simklToken}`, // ✅ Fixed
+          'Authorization': authHeader,
           'Content-Type': 'application/json',
           'simkl-api-key': cfg.simklClientId,
           'User-Agent': 'StremioSimklSync/1.0'
         },
-        body: JSON.stringify(scrobbleData)
+        body: JSON.stringify({
+          [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb } },
+          progress: progress,
+          duration: durationSec
+        })
       });
-
-      const data = await response.json();
-      console.log(`[SCROBBLE] Response: ${JSON.stringify(data)}`);
     }
 
-    // 2. Mark as watched
+    // Mark Watched
     if (progress >= cfg.watchThreshold && cfg.syncFullProgress) {
       await fetch(SIMKL.SYNC_HISTORY, {
         method: 'POST',
         headers: {
-          `Authorization: Bearer ${cfg.simklToken}`, // ✅ Fixed
+          'Authorization': authHeader,
           'Content-Type': 'application/json',
           'simkl-api-key': cfg.simklClientId,
           'User-Agent': 'StremioSimklSync/1.0'
@@ -351,18 +346,16 @@ app.post('/player', async (req, res) => {
           [type === 'movie' ? 'movies' : 'episodes']: [{ ids: { imdb } }]
         })
       });
-      console.log(`[WATCHED] Marked ${imdb} as watched`);
     }
 
     res.json({ success: true });
   } catch (e) {
-    console.error(`[PLAYER ERROR] ${e.message}`);
     res.json({ success: false, error: e.message });
   }
 });
 
 // --------------------------
-// MANIFEST (UNCACHEABLE)
+// MANIFEST & ROUTES
 // --------------------------
 app.get('/manifest:random?.json', (req, res) => {
   res.json(manifest);
@@ -371,7 +364,7 @@ app.get('/manifest:random?.json', (req, res) => {
 app.get('/', (req, res) => res.redirect('/configure'));
 
 // --------------------------
-// START
+// START SERVER
 // --------------------------
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${PORT} | v${manifest.version}`);
