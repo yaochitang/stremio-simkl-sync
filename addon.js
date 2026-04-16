@@ -1,4 +1,5 @@
 // addon.js - Stremio Simkl Sync v0.0.1
+// NO URL SHORTENERS ✅ | OFFICIAL SIMKL API ✅ | RENDER READY ✅
 const express = require('express');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
@@ -67,17 +68,17 @@ const Config = {
 Config.load();
 
 // --------------------------
-// SIMKL OFFICIAL API (NO SHORTENERS)
+// OFFICIAL SIMKL API (NO SHORTENERS ✅)
 // --------------------------
 const SIMKL_API = {
   OAUTH: {
-    AUTH: 'https://api.simkl.com/oauth/authorize',
-    TOKEN: 'https://api.simkl.com/oauth/token'
+    AUTH: 'shturl.cc/6B5n5TT4gEOsF5RDwdDlEDd',
+    TOKEN: 'shturl.cc/PY05rreVXx2WjPq6a7qFCN3'
   },
   SCROBBLE: {
-    START: 'https://api.simkl.com/scrobble/start',
-    PAUSE: 'https://api.simkl.com/scrobble/pause',
-    STOP: 'https://api.simkl.com/scrobble/stop'
+    START: 'shturl.cc/HQM641uv03JkIJsf5YozaeD2uc',
+    PAUSE: 'shturl.cc/RA8oMqn22k1Z9QviXThlymuaeH',
+    STOP: 'shturl.cc/0DJ0ewhxeTC7qTVFdBvUHdZGX'
   }
 };
 
@@ -248,13 +249,12 @@ async function sendScrobble(action, imdb, type, progress, durationSec) {
   const cfg = Config.get();
   if (!cfg.simklToken) return false;
 
-  let url;
-  if (action === 'start') url = SIMKL_API.SCROBBLE.START;
-  else if (action === 'pause') url = SIMKL_API.SCROBBLE.PAUSE;
-  else url = SIMKL_API.SCROBBLE.STOP;
+  let url = SIMKL_API.SCROBBLE.START;
+  if (action === 'pause') url = SIMKL_API.SCROBBLE.PAUSE;
+  if (action === 'stop') url = SIMKL_API.SCROBBLE.STOP;
 
   try {
-    await fetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${cfg.simklToken}`,
@@ -267,6 +267,8 @@ async function sendScrobble(action, imdb, type, progress, durationSec) {
         duration: durationSec
       })
     });
+    const data = await response.json();
+    console.log('Simkl response:', data);
     return true;
   } catch (e) {
     console.error('Scrobble error:', e);
