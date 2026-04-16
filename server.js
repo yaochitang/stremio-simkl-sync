@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const app = express();
 
 // --------------------------
-// CONFIG
+// CONSTANTS
 // --------------------------
 const ADDON_VERSION = '0.0.1';
 const ADDON_NAME = 'Stremio Simkl Sync';
@@ -19,14 +19,13 @@ const PORT = process.env.PORT || 3000;
 let userAuth = {
   accessToken: null,
   refreshToken: null,
-  expiresAt: null,
-  lastActivityTimestamp: null
+  expiresAt: null
 };
 let simklState = null;
 let lastScrobbleTime = 0;
 
 // --------------------------
-// MANIFEST (Stremio Required)
+// MANIFEST
 // --------------------------
 const MANIFEST = {
   id: 'org.stremio.simklsync',
@@ -35,7 +34,7 @@ const MANIFEST = {
   description: 'Sync Stremio watch progress to Simkl',
   logo: 'https://simkl.com/images/simkl-logo-192.png',
   background: 'https://simkl.com/images/simkl-bg.jpg',
-  resources: ['stream', 'meta', 'catalog'],
+  resources: ['stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt', 'simkl'],
   config: [
@@ -52,7 +51,22 @@ const MANIFEST = {
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 const getBaseUrl = (req) => `${req.protocol}://${req.get('host')}`;
 
-const getSimklHeaders = (config, includeAuth = true) => {
+// Parse Stremio config from the URL path
+const parseStremioConfig = (req) => {
+  try {
+    // Config is encoded as base64 in the URL path: /configure/<base64-config>
+    const pathParts = req.path.split('/');
+    const encodedConfig = pathParts.find(part => part && !['configure', ''].includes(part));
+    if (!encodedConfig) return {};
+    const decoded = Buffer.from(encodedConfig, 'base64').toString('utf-8');
+    return JSON.parse(decoded);
+  } catch (err) {
+    log(`Failed to parse config: ${err.message}`);
+    return {};
+  }
+};
+
+const getSimklHeaders = (includeAuth = true) => {
   const headers = {
     'User-Agent': `${ADDON_NAME}/${ADDON_VERSION} (Stremio Addon)`,
     'Accept': 'application/json'
@@ -70,7 +84,7 @@ const getSimklParams = (config) => ({
 });
 
 // --------------------------
-// SIMKL API FUNCTIONS
+// SIMKL API
 // --------------------------
 const refreshToken = async (config) => {
   if (!userAuth.refreshToken || Date.now() < userAuth.expiresAt) return;
@@ -81,7 +95,7 @@ const refreshToken = async (config) => {
       client_id: config.simkl_client_id,
       client_secret: config.simkl_client_secret,
       refresh_token: userAuth.refreshToken
-    }, { headers: getSimklHeaders(config, false) });
+    }, { headers: getSimklHeaders(false) });
     userAuth.accessToken = res.data.access_token;
     userAuth.refreshToken = res.data.refresh_token;
     userAuth.expiresAt = Date.now() + (res.data.expires_in * 1000);
@@ -119,7 +133,7 @@ const scrobble = async (config, action, progress, meta) => {
 
   try {
     await axios.post(`${SIMKL_API_BASE}/scrobble/${action}`, body, {
-      headers: getSimklHeaders(config),
+      headers: getSimklHeaders(),
       params: getSimklParams(config)
     });
     log(`✅ Scrobbled ${action} successfully`);
@@ -140,18 +154,21 @@ app.use((req, res, next) => {
 });
 
 // --------------------------
-// STREMIO ADDON ENDPOINTS
+// ENDPOINTS
 // --------------------------
 app.get('/manifest.json', (req, res) => {
   log('Serving manifest.json');
   res.json(MANIFEST);
 });
 
-// Configure Page (Fix: Now uses Stremio config params)
-app.get('/configure', (req, res) => {
+// Configure page (handles Stremio's base64-encoded config)
+app.get('/configure/*', (req, res) => {
+  const config = parseStremioConfig(req);
   const baseUrl = getBaseUrl(req);
-  const config = req.query;
   log(`Configure page loaded, config present: ${!!config.simkl_client_id}`);
+
+  const encodedConfig = Buffer.from(JSON.stringify(config)).toString('base64');
+  const authUrl = `${baseUrl}/simkl/auth?config=${encodedConfig}`;
 
   res.send(`
     <!DOCTYPE html>
@@ -160,21 +177,24 @@ app.get('/configure', (req, res) => {
       <title>${ADDON_NAME} (v${ADDON_VERSION})</title>
       <style>
         body { font-family: Arial; max-width: 600px; margin: 2rem auto; }
-        button { background: #007bff; color: white; border: none; padding: 1rem; border-radius: 5px; cursor: pointer; }
+        button { background: #007bff; color: white; border: none; padding: 1rem; border-radius: 5px; cursor: pointer; font-size: 1rem; }
+        .error { color: red; font-weight: bold; }
       </style>
     </head>
     <body>
       <h1>${ADDON_NAME} (v${ADDON_VERSION})</h1>
+      ${!config.simkl_client_id ? '<p class="error">⚠️ No Simkl Client ID found. Please configure the addon in Stremio first.</p>' : ''}
       <h3>1. Connect Simkl Account</h3>
-      <a href="${baseUrl}/simkl/auth?client_id=${config.simkl_client_id || ''}">
+      <a href="${authUrl}">
         <button>Login to Simkl</button>
       </a>
       <h3>2. Settings</h3>
-      <p>Configure these in Stremio Addons → ${ADDON_NAME} → Configure:</p>
+      <p>These values are read from your Stremio addon configuration:</p>
       <ul>
-        <li>Simkl Client ID/Secret (from Simkl Developer Portal)</li>
-        <li>Watched Threshold (default: 80%)</li>
-        <li>Enable Scrobbling</li>
+        <li>Simkl Client ID: ${config.simkl_client_id || 'Not set'}</li>
+        <li>Simkl Client Secret: ${config.simkl_client_secret ? '********' : 'Not set'}</li>
+        <li>Watched Threshold: ${config.watch_threshold || 80}%</li>
+        <li>Scrobbling: ${config.scrobble_enabled ? 'Enabled' : 'Disabled'}</li>
       </ul>
       <p>⚠️ API calls are rate-limited to 1 POST/second to comply with Simkl rules.</p>
     </body>
@@ -182,45 +202,62 @@ app.get('/configure', (req, res) => {
   `);
 });
 
-// OAuth Initiate (Fix: Now uses client_id from query)
+// OAuth Initiate (receives config from the configure page)
 app.get('/simkl/auth', (req, res) => {
   const baseUrl = getBaseUrl(req);
   const redirectUri = `${baseUrl}/simkl/callback`;
   simklState = crypto.randomBytes(16).toString('hex');
-  const clientId = req.query.client_id;
 
-  if (!clientId) {
+  // Decode config from the query param
+  let config;
+  try {
+    config = JSON.parse(Buffer.from(req.query.config, 'base64').toString('utf-8'));
+  } catch (err) {
+    log(`Failed to decode config: ${err.message}`);
+    return res.send('❌ Invalid config. Please go back to the configure page.');
+  }
+
+  if (!config.simkl_client_id) {
     log('❌ OAuth failed: No client_id provided');
     return res.send('❌ Please set your Simkl Client ID in Stremio addon settings first.');
   }
 
-  const authUrl = `${SIMKL_AUTH_URL}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${simklState}`;
-  log(`Redirecting to Simkl OAuth: ${authUrl}`);
+  const authUrl = `${SIMKL_AUTH_URL}?client_id=${config.simkl_client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${simklState}`;
+  log(`Redirecting to Simkl OAuth`);
   res.redirect(authUrl);
 });
 
-// OAuth Callback (Fix: Logs errors/success)
+// OAuth Callback (uses config from the auth flow)
 app.get('/simkl/callback', async (req, res) => {
-  const { code, state } = req.query;
+  const { code, state, config: encodedConfig } = req.query;
   const baseUrl = getBaseUrl(req);
-  const clientId = req.query.client_id;
-  const clientSecret = req.query.client_secret;
-
-  log(`OAuth callback received, state match: ${state === simklState}`);
 
   if (state !== simklState) {
     log('❌ Invalid OAuth state');
     return res.send('❌ Invalid OAuth state. Please try again.');
   }
 
+  let config;
+  try {
+    config = JSON.parse(Buffer.from(encodedConfig, 'base64').toString('utf-8'));
+  } catch (err) {
+    log(`Failed to decode config: ${err.message}`);
+    return res.send('❌ Invalid config. Please go back to the configure page.');
+  }
+
+  if (!config.simkl_client_id || !config.simkl_client_secret) {
+    log('❌ Missing client_id or client_secret');
+    return res.send('❌ Please set your Simkl Client ID/Secret in Stremio addon settings.');
+  }
+
   try {
     const tokenRes = await axios.post(SIMKL_TOKEN_URL, {
       grant_type: 'authorization_code',
-      client_id: clientId,
-      client_secret: clientSecret,
+      client_id: config.simkl_client_id,
+      client_secret: config.simkl_client_secret,
       redirect_uri: `${baseUrl}/simkl/callback`,
       code
-    }, { headers: getSimklHeaders({}, false) });
+    }, { headers: getSimklHeaders(false) });
 
     userAuth.accessToken = tokenRes.data.access_token;
     userAuth.refreshToken = tokenRes.data.refresh_token;
@@ -228,8 +265,9 @@ app.get('/simkl/callback', async (req, res) => {
     log('✅ Simkl OAuth successful, token stored');
 
     res.send(`
-      <h1>✅ Connected!</h1>
-      <p>You can close this tab. Scrobbling will now work in Stremio.</p>
+      <h1>✅ Connected to Simkl!</h1>
+      <p>You can close this tab and return to Stremio.</p>
+      <p>Scrobbling will now work with your configured settings.</p>
     `);
   } catch (err) {
     log(`❌ OAuth failed: ${err.response?.data?.error || err.message}`);
@@ -237,7 +275,7 @@ app.get('/simkl/callback', async (req, res) => {
   }
 });
 
-// Scrobble Endpoint (Stremio-compatible)
+// Scrobble endpoint (Stremio-compatible)
 app.post('/scrobble', async (req, res) => {
   const { config, meta, progress, paused } = req.body;
   log(`Scrobble request: ${meta?.id} | Progress: ${progress}% | Paused: ${paused}`);
@@ -261,19 +299,18 @@ app.post('/scrobble', async (req, res) => {
   res.json({ success: true });
 });
 
-// Required Stremio Endpoints
+// Required Stremio endpoints
 app.get('/stream/:type/:id.json', (req, res) => res.json({ streams: [] }));
 app.get('/meta/:type/:id.json', (req, res) => res.json({ meta: {} }));
 app.get('/catalog/:type/:id.json', (req, res) => res.json({ metas: [] }));
 
-// Health Check
+// Health check
 app.get('/', (req, res) => {
   log('Health check passed');
   res.send(`${ADDON_NAME} v${ADDON_VERSION} running`);
 });
 
-// Start Server
+// Start server
 app.listen(PORT, () => {
   log(`🚀 ${ADDON_NAME} v${ADDON_VERSION} running on port ${PORT}`);
-  log(`🔗 Configure URL: http://localhost:${PORT}/configure`);
 });
