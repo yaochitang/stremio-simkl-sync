@@ -33,7 +33,7 @@ function decrypt(text) {
 }
 
 // --------------------------
-// CONFIG (ENCRYPTED FILE, NO HARDCODED API)
+// CONFIG (ENCRYPTED FILE)
 // --------------------------
 const CONFIG_DIR = IS_PRODUCTION ? '/opt/render/config' : __dirname;
 if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -71,13 +71,13 @@ Config.load();
 // --------------------------
 const SIMKL_API = {
   OAUTH: {
-    AUTH: 'shturl.cc/AGVA1AYct8LtZVYMKGFxk7I',
-    TOKEN: 'shturl.cc/mcbAHdRdGLKAScOFbQXfRuD'
+    AUTH: 'https://api.simkl.com/oauth/authorize',
+    TOKEN: 'https://api.simkl.com/oauth/token'
   },
   SCROBBLE: {
-    START: 'shturl.cc/SLVzkRtaDSVtp4I3zCoM4cfZDj',
-    PAUSE: 'shturl.cc/gt7ObGAG4917bCEu47Rwb9jqJI',
-    STOP: 'shturl.cc/Llw6j5QYCorqEinICVNp6PotV'
+    START: 'https://api.simkl.com/scrobble/start',
+    PAUSE: 'https://api.simkl.com/scrobble/pause',
+    STOP: 'https://api.simkl.com/scrobble/stop'
   }
 };
 
@@ -88,7 +88,7 @@ const manifest = {
   id: 'org.stremio.simkl.sync',
   version: '0.0.1',
   name: 'Stremio Simkl Sync',
-  description: 'Scrobble Stremio to Simkl',
+  description: 'Scrobble Stremio playback to Simkl',
   logo: 'https://i.imgur.com/RM8QpFs.png',
   resources: [{ name: 'player', type: 'actor' }],
   types: ['movie', 'series'],
@@ -232,11 +232,12 @@ app.get('/auth/simkl/callback', async (req, res) => {
     const data = await r.json();
     if (data.access_token) {
       Config.save({ simklToken: data.access_token });
-      return res.send('<h1 style="color:green">✅ Authenticated</h1>');
+      return res.send('<h1 style="color:green">✅ Authenticated successfully!</h1>');
     }
-    res.send('<h1 style="color:red">❌ Auth Failed</h1>');
+    res.send('<h1 style="color:red">❌ Authentication failed</h1>');
   } catch (e) {
-    res.send('<h1 style="color:red">❌ Error</h1>');
+    console.error(e);
+    res.send('<h1 style="color:red">❌ Server error during authentication</h1>');
   }
 });
 
@@ -275,7 +276,7 @@ async function sendScrobble(action, imdb, type, progress, durationSec) {
 
 app.get('/test-scrobble', async (req, res) => {
   const ok = await sendScrobble('start', 'tt1375666', 'movie', 30, 8880);
-  res.send(ok ? '✅ Test sent' : '❌ Failed');
+  res.send(ok ? '✅ Test scrobble sent to Simkl' : '❌ Failed to send test scrobble');
 });
 
 // --------------------------
@@ -315,7 +316,7 @@ app.get('/manifest.json', (req, res) => {
 app.get('/', (req, res) => res.redirect('/configure'));
 
 // --------------------------
-// START
+// START SERVER
 // --------------------------
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Stremio Simkl Sync v0.0.1 running on port ${PORT}`);
