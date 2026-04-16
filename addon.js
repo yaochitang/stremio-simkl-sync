@@ -27,7 +27,7 @@ function decrypt(text) {
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
   let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
+  decrypted += cipher.final('utf8');
   return decrypted;
 }
 
@@ -99,6 +99,14 @@ const manifest = {
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// --------------------------
+// LOG ALL INCOMING REQUESTS
+// --------------------------
+app.use((req, res, next) => {
+  console.log(`📥 REQUEST: ${req.method} ${req.originalUrl}`);
+  next();
+});
 
 // NO CACHE + CORS
 app.use((req, res, next) => {
@@ -183,6 +191,12 @@ ${cfg.simklToken ? '<p class="success">✅ Connected</p>' : '<p class="info">Not
 <div class="card">
 <h2>🧪 Test Scrobble</h2>
 <a href="/test-scrobble"><button class="btn-test">Test Inception (tt1375666)</button></a>
+</div>
+
+<div class="card">
+<h2>📥 TEST PLAYER ENDPOINT</h2>
+<a href="/player-test" target="_blank"><button class="btn-test">Trigger Player Log</button></a>
+<p>Click this → CHECK RENDER LOGS</p>
 </div>
 
 <div class="card">
@@ -288,7 +302,15 @@ app.get('/test-scrobble', async (req, res) => {
 });
 
 // --------------------------
-// STREMIO PLAYER HOOK (FULLY FIXED)
+// PLAYER TEST ENDPOINT (GET)
+// --------------------------
+app.get('/player-test', (req, res) => {
+  console.log("✅ PLAYER TEST TRIGGERED FROM BROWSER");
+  res.send("✅ Check Render logs — you should see this line!");
+});
+
+// --------------------------
+// STREMIO PLAYER HOOK (POST)
 // --------------------------
 app.post('/player', async (req, res) => {
   console.log("✅ STREMIO PLAYER RECEIVED:", req.body);
@@ -376,6 +398,6 @@ app.get('/', (req, res) => res.redirect('/configure'));
 // --------------------------
 // START SERVER
 // --------------------------
-app.listen(PORT, '0.0.0', () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${PORT} | v${manifest.version}`);
 });
