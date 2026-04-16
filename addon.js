@@ -27,7 +27,7 @@ function decrypt(text) {
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
   let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
+  decrypted += cipher.final('utf8');
   return decrypted;
 }
 
@@ -75,15 +75,14 @@ const SIMKL = {
 };
 
 // --------------------------
-// ✅ FIXED STREMIO MANIFEST (PLAYER ACTOR)
+// ✅ FIXED STREMIO MANIFEST (PLAYER ACTOR — THIS IS WHY NO REQUESTS)
 // --------------------------
 const manifest = {
   id: 'org.stremio.simkl.sync.final',
   version: '1.0.0',
   name: 'Stremio Simkl Sync',
-  description: 'Scrobble Stremio playback to Simkl',
+  description: 'Scrobble Stremio to Simkl',
   logo: 'https://i.imgur.com/RM8QpFs.png',
-  // ✅ THIS IS THE FIX Stremio REQUIRES
   resources: [
     { name: "player", type: "actor" }
   ],
@@ -119,7 +118,7 @@ app.use((req, res, next) => {
 });
 
 // --------------------------
-// CONFIG PAGE
+// ✅ FIXED CONFIGURE PAGE (FULLY WORKING)
 // --------------------------
 app.get('/configure', (req, res) => {
   const cfg = Config.get();
@@ -130,16 +129,76 @@ app.get('/configure', (req, res) => {
   const html = `
 <!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"><title>Simkl Sync</title></head>
-<body style="background:#121212;color:#fff;font-family:Arial;padding:30px">
-<h1>✅ Simkl Sync (FIXED)</h1>
-<a href="${installUrl}"><button style="padding:15px 30px;font-size:16px;background:#2196F3;color:white;border:none;border-radius:10px">Install to Stremio</button></a>
-<br><br>
-<a href="/auth/simkl"><button style="padding:15px 30px;font-size:16px;background:#7CB342;color:white;border:none;border-radius:10px">Login to Simkl</button></a>
-<br><br>
-<a href="/test-scrobble"><button style="padding:15px 30px;font-size:16px;background:#FF9800;color:white;border:none;border-radius:10px">Test Scrobble</button></a>
-</body></html>`;
+<head>
+<meta charset="UTF-8">
+<title>Simkl Sync Config</title>
+<style>
+body{background:#121212;color:#fff;font-family:Arial;max-width:600px;margin:40px auto;padding:20px;}
+.card{background:#1e1e2e;padding:24px;border-radius:12px;margin-bottom:20px;}
+h1{color:#7CB342;}
+label{display:block;margin:12px 0 5px;font-weight:bold;}
+input,select,button{width:100%;padding:12px;border-radius:6px;border:none;font-size:15px;margin-bottom:8px;background:#2d2d3f;color:white;}
+button{background:#7CB342;color:white;cursor:pointer;}
+.btn-install{background:#2196F3;}
+.btn-test{background:#FF9800;}
+.success{color:#4CAF50;background:#1b2b1f;padding:10px;border-radius:6px;}
+.info{color:#aaa;}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>⚙️ Simkl Sync</h1>
+<form method="POST" action="/save-config">
+<label>Simkl Client ID</label>
+<input name="simklClientId" value="${cfg.simklClientId}" required>
+<label>Simkl Client Secret</label>
+<input type="password" name="simklClientSecret" value="${cfg.simklClientSecret}" required>
+<label>Mark Watched %</label>
+<input type="number" name="watchThreshold" value="${cfg.watchThreshold}" min=1 max=100 required>
+<label>Sync Watching Now</label>
+<select name="syncWatchingNow">
+<option value="true" ${cfg.syncWatchingNow?'selected':''}>Yes</option>
+<option value="false" ${!cfg.syncWatchingNow?'selected':''}>No</option>
+</select>
+<label>Sync Watched</label>
+<select name="syncFullProgress">
+<option value="true" ${cfg.syncFullProgress?'selected':''}>Yes</option>
+<option value="false" ${!cfg.syncFullProgress?'selected':''}>No</option>
+</select>
+<button type="submit">💾 Save Settings</button>
+</form>
+</div>
+
+<div class="card">
+<h2>🔐 Login to Simkl</h2>
+<p class="info">Redirect URI: ${redirectUri}</p>
+<a href="/auth/simkl"><button>Login</button></a>
+${cfg.simklToken ? '<p class="success">✅ Connected to Simkl</p>' : '<p class="info">Not logged in</p>'}
+</div>
+
+<div class="card">
+<h2>🧪 Test Scrobble</h2>
+<a href="/test-scrobble"><button class="btn-test">Test Inception</button></a>
+</div>
+
+<div class="card">
+<h2>📥 Install to Stremio</h2>
+<a href="${installUrl}"><button class="btn-install">Install Addon</button></a>
+</div>
+</body>
+</html>`;
   res.send(html);
+});
+
+app.post('/save-config', (req, res) => {
+  Config.save({
+    simklClientId: req.body.simklClientId,
+    simklClientSecret: req.body.simklClientSecret,
+    watchThreshold: parseInt(req.body.watchThreshold),
+    syncWatchingNow: req.body.syncWatchingNow === 'true',
+    syncFullProgress: req.body.syncFullProgress === 'true'
+  });
+  res.redirect('/configure');
 });
 
 // --------------------------
@@ -170,10 +229,12 @@ app.get('/auth/simkl/callback', async (req, res) => {
     const data = await r.json();
     if (data.access_token) {
       Config.save({ simklToken: data.access_token });
-      return res.send('<h1 style="color:green">✅ Authenticated!</h1>');
+      return res.send('<h1 style="color:green;text-align:center;">✅ Authenticated!</h1>');
     }
-    res.send('<h1 style="color:red">❌ Auth Failed</h1>');
-  } catch (e) { res.send('<h1 style="color:red">❌ Error</h1>'); }
+    res.send('<h1 style="color:red;text-align:center;">❌ Auth Failed</h1>');
+  } catch (e) {
+    res.send('<h1 style="color:red;text-align:center;">❌ Error</h1>');
+  }
 });
 
 // --------------------------
@@ -181,40 +242,52 @@ app.get('/auth/simkl/callback', async (req, res) => {
 // --------------------------
 app.get('/test-scrobble', async (req, res) => {
   const cfg = Config.get();
+  if (!cfg.simklToken) return res.send('❌ No token');
+
   try {
     const url = new URL(SIMKL.SCROBBLE_START);
     url.searchParams.set('client_id', cfg.simklClientId);
-    const auth = 'Bearer ' + cfg.simklToken;
+    const authHeader = 'Bearer ' + cfg.simklToken;
 
-    const resp = await fetch(url, {
+    const response = await fetch(url.toString(), {
       method: 'POST',
       headers: {
-        'Authorization': auth,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'simkl-api-key': cfg.simklClientId
       },
       body: JSON.stringify({
-        movie: { ids: { imdb: 'tt1375666' } }, progress:30, duration:8880
+        movie: { ids: { imdb: 'tt1375666' } },
+        progress: 30,
+        duration: 8880
       })
     });
-    const data = await resp.json();
-    res.send(`✅ Response: ${JSON.stringify(data)}`);
-  } catch (e) { res.send('❌ Error'); }
+
+    const data = await response.json();
+    res.send(`✅ Simkl Response: ${JSON.stringify(data)}`);
+  } catch (e) {
+    res.send('❌ Error');
+  }
 });
 
 // --------------------------
 // ✅ STREMIO PLAYER HOOK (FINAL)
 // --------------------------
 app.post('/player', async (req, res) => {
-  console.log("✅ STREMIO PLAYER CALL RECEIVED!", req.body);
+  console.log("✅ STREMIO PLAYER RECEIVED:", req.body);
 
   const cfg = Config.get();
   const { videoId, time, duration, type } = req.body;
-  if (!videoId || !cfg.simklToken) return res.json({ success: false });
+
+  if (!videoId || !cfg.simklToken || !time || !duration) {
+    return res.json({ success: false });
+  }
 
   const imdb = videoId.startsWith('tt') ? videoId : null;
+  if (!imdb) return res.json({ success: false });
+
   const progress = Math.round((time / duration) * 100);
-  const auth = 'Bearer ' + cfg.simklToken;
+  const authHeader = 'Bearer ' + cfg.simklToken;
 
   try {
     const url = new URL(SIMKL.SCROBBLE_START);
@@ -223,18 +296,20 @@ app.post('/player', async (req, res) => {
     await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': auth,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'simkl-api-key': cfg.simklClientId
       },
       body: JSON.stringify({
         [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb } },
-        progress, duration: Math.round(duration)
+        progress,
+        duration: Math.round(duration)
       })
     });
+
     res.json({ success: true });
   } catch (e) {
-    console.error(e);
+    console.error("Error:", e);
     res.json({ success: false });
   }
 });
@@ -250,8 +325,8 @@ app.get('/manifest.json', (req, res) => {
 app.get('/', (req, res) => res.redirect('/configure'));
 
 // --------------------------
-// START
+// START SERVER
 // --------------------------
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server running | FIXED MANIFEST`);
+  console.log(`✅ Server running on port ${PORT} | FIXED MANIFEST + CONFIG`);
 });
