@@ -3,13 +3,65 @@ const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 
+// --------------------------
+// SERVER SETUP
+// --------------------------
+const PORT = process.env.PORT || 56565;
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+
+// LOAD CONFIG
+let APP_CONFIG = {
+  simklClientId: '',
+  simklUserCode: '',
+  watchThreshold: 80,
+  syncWatchingNow: true,
+  syncFullProgress: true
+};
+
+if (fs.existsSync(CONFIG_PATH)) {
+  try { APP_CONFIG = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch (e) {}
+}
+
+function saveConfig() {
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(APP_CONFIG, null, 2));
+}
+
+// --------------------------
+// SIMKL OFFICIAL API (NO SHORTENERS)
+// --------------------------
+const SIMKL = {
+  PIN_CREATE: 'https://api.simkl.com/oauth/pin',
+  PIN_CHECK: 'https://api.simkl.com/oauth/pin/:userCode',
+  SCROBBLE_START: 'https://api.simkl.com/scrobble/start',
+  SYNC_HISTORY: 'https://api.simkl.com/sync/history'
+};
+
+// --------------------------
+// STREMIO MANIFEST (FIXED PLAYER ACTOR)
+// --------------------------
+const manifest = {
+  id: 'org.stremio.simkl.pinsync',
+  version: '1.0.0',
+  name: 'Simkl Sync (PIN)',
+  description: 'Stremio to Simkl Scrobbler - PIN Login',
+  logo: 'https://i.imgur.com/RM8QpFs.png',
+  resources: [{ name: "player", type: "actor" }],
+  types: ['movie', 'series'],
+  idPrefixes: ['tt'],
+  background: '#1e1e2e',
+  behavior: { configurable: true, persistent: true }
+};
+
+// --------------------------
+// EXPRESS
+// --------------------------
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Log ALL requests
+// LOG ALL REQUESTS
 app.use((req, res, next) => {
-  console.log(`📥 ${req.method} ${req.originalUrl}`);
+  console.log(`📥 ${req.method} ${req.originalUrl} | Body:`, req.body);
   next();
 });
 
@@ -17,155 +69,149 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
 
 // --------------------------
-// CONFIG
+// CONFIG PAGE
 // --------------------------
-const configPath = path.join(__dirname, 'config.json');
-let config = {
-  simklClientId: '',
-  simklClientSecret: '',
-  simklToken: ''
-};
+app.get('/configure', async (req, res) => {
+  let pinStatus = '';
 
-if (fs.existsSync(configPath)) {
-  try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
-}
+  if (APP_CONFIG.simklClientId && !APP_CONFIG.simklUserCode) {
+    try {
+      const r = await fetch(SIMKL.PIN_CREATE + `?client_id=${APP_CONFIG.simklClientId}`);
+      const data = await r.json();
+      APP_CONFIG.simklUserCode = data.userCode;
+      APP_CONFIG.simklVerifier = data.verifier;
+      saveConfig();
+    } catch (e) {}
+  }
 
-function saveConfig() {
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-}
+  if (APP_CONFIG.simklUserCode) {
+    pinStatus = `
+      <h3>✅ Login at: <a href="https://simkl.com/activate/pin?code=${APP_CONFIG.simklUserCode}" target="_blank">simkl.com/activate/pin</a></h3>
+      <h2>Your PIN: <b style="color:#7CB342">${APP_CONFIG.simklUserCode}</b></h2>
+    `;
+  }
 
-// --------------------------
-// ✅ WORKING CONFIG PAGE
-// --------------------------
-app.get('/configure', (req, res) => {
-  const host = req.hostname;
-  res.send(`
-<!DOCTYPE html>
-<html>
-<head>
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
     <meta charset="UTF-8">
-    <title>Simkl Sync</title>
+    <title>Simkl PIN Sync</title>
     <style>
-        body { background: #121212; color: white; font-family: Arial; padding: 40px; }
-        input { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
-        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+      body{background:#121212;color:#fff;font-family:Arial;max-width:600px;margin:40px auto;padding:20px;}
+      .card{background:#1e1e2e;padding:24px;border-radius:12px;margin-bottom:20px;}
+      input,button{width:100%;padding:12px;margin:8px 0;border-radius:6px;border:none;background:#2d2d3f;color:white;font-size:15px;}
+      button{background:#7CB342;cursor:pointer;}
     </style>
-</head>
-<body>
-    <h1>Simkl Sync</h1>
-    <form method="POST" action="/save">
-        <h3>Simkl Client ID</h3>
-        <input name="cid" value="${config.simklClientId || ''}" required>
-        <h3>Simkl Client Secret</h3>
-        <input name="cs" value="${config.simklClientSecret || ''}" required>
-        <button type="submit">Save</button>
-    </form>
-    <br>
-    <a href="/login"><button>Login to Simkl</button></a>
-    <a href="stremio://${host}/manifest.json"><button>Install to Stremio</button></a>
-</body>
-</html>
-  `);
+  </head>
+  <body>
+    <div class="card">
+      <h1>⚙️ Simkl PIN Sync</h1>
+      <form method="POST" action="/save">
+        <label>Simkl Client ID</label>
+        <input name="simklClientId" value="${APP_CONFIG.simklClientId || ''}" required>
+        <button type="submit">Save & Generate PIN</button>
+      </form>
+      ${pinStatus}
+    </div>
+    <div class="card">
+      <a href="stremio://${req.hostname}/manifest.json"><button>📥 Install to Stremio</button></a>
+    </div>
+  </body>
+  </html>`;
+  res.send(html);
 });
 
 app.post('/save', (req, res) => {
-  config.simklClientId = req.body.cid;
-  config.simklClientSecret = req.body.cs;
+  APP_CONFIG.simklClientId = req.body.simklClientId;
+  APP_CONFIG.simklUserCode = '';
+  APP_CONFIG.simklToken = '';
   saveConfig();
   res.redirect('/configure');
 });
 
 // --------------------------
-// ✅ REAL SIMKL API — NO SHORT URLS AT ALL
+// SIMKL PIN CHECK
 // --------------------------
-app.get('/login', (req, res) => {
-  const redirectUri = `https://${req.hostname}/callback`;
-  const url = `https://simkl.com/oauth/authorize?client_id=${config.simklClientId}&redirect_uri=${redirectUri}&response_type=code&scope=scrobble:write`;
-  res.redirect(url);
+app.get('/check-pin', async (req, res) => {
+  if (!APP_CONFIG.simklClientId || !APP_CONFIG.simklUserCode || !APP_CONFIG.simklVerifier) {
+    return res.json({ success: false });
+  }
+
+  try {
+    const url = SIMKL.PIN_CHECK.replace(':userCode', APP_CONFIG.simklUserCode);
+    const r = await fetch(`${url}?client_id=${APP_CONFIG.simklClientId}&verifier=${APP_CONFIG.simklVerifier}`);
+    const data = await r.json();
+
+    if (data.access_token) {
+      APP_CONFIG.simklToken = data.access_token;
+      saveConfig();
+      return res.json({ success: true, loggedIn: true });
+    }
+    res.json({ success: true, loggedIn: false });
+  } catch (e) {
+    res.json({ success: false });
+  }
 });
 
-app.get('/callback', async (req, res) => {
+// --------------------------
+// STREMIO PLAYER HOOK (100% SIMKL API COMPLIANT)
+// --------------------------
+app.post('/player', async (req, res) => {
   try {
-    const resp = await fetch('https://api.simkl.com/oauth/token', {
+    const { videoId, time, duration, type } = req.body;
+    if (!videoId || !time || !duration || !APP_CONFIG.simklToken || !APP_CONFIG.simklClientId) {
+      return res.json({ success: false });
+    }
+
+    const imdb = videoId.startsWith('tt') ? videoId : null;
+    if (!imdb) return res.json({ success: false });
+
+    const progress = Math.round((time / duration) * 100);
+    const dur = Math.round(duration);
+
+    // --------------------------
+    // SIMKL OFFICIAL SCROBBLE
+    // --------------------------
+    await fetch(SIMKL.SCROBBLE_START + `?client_id=${APP_CONFIG.simklClientId}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${APP_CONFIG.simklToken}`,
+        'Content-Type': 'application/json',
+        'simkl-api-key': APP_CONFIG.simklClientId,
+        'User-Agent': 'StremioSimklPIN/1.0'
+      },
       body: JSON.stringify({
-        client_id: config.simklClientId,
-        client_secret: config.simklClientSecret,
-        code: req.query.code,
-        grant_type: 'authorization_code',
-        redirect_uri: `https://${req.hostname}/callback`
+        [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb } },
+        progress,
+        duration: dur
       })
     });
-    const data = await resp.json();
-    if (data.access_token) {
-      config.simklToken = data.access_token;
-      saveConfig();
-      res.send('<h1 style="color:green">✅ Logged in</h1>');
-      return;
-    }
-  } catch (e) {}
-  res.send('<h1 style="color:red">❌ Failed</h1>');
+
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false });
+  }
 });
 
 // --------------------------
-// ✅ STREMIO MANIFEST (100% CORRECT)
+// MANIFEST
 // --------------------------
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json({
-    id: 'com.simkl.sync',
-    version: '1.0.0',
-    name: 'Simkl Sync',
-    description: 'Scrobble Stremio to Simkl',
-    resources: [{ name: 'player', type: 'actor' }],
-    types: ['*'],
-    idPrefixes: ['*'],
-    configurable: true,
-    persistent: true
-  });
+  res.json(manifest);
 });
 
-// --------------------------
-// ✅ STREMIO PLAYER + REAL SIMKL SCROBBLE
-// --------------------------
-app.post('/player', async (req, res) => {
-  console.log('✅ STREMIO PLAYER CALL:', req.body);
-
-  if (!config.simklToken) return res.json({ success: true });
-
-  try {
-    const { videoId, time, duration, type } = req.body;
-    if (!videoId || !time || !duration) return res.json({ success: true });
-
-    // REAL SIMKL SCROBBLE API — NO SHORT URLS
-    await fetch(`https://api.simkl.com/scrobble/start?client_id=${config.simklClientId}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.simklToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb: videoId } },
-        progress: Math.round((time / duration) * 100),
-        duration: Math.round(duration)
-      })
-    });
-  } catch (e) {}
-
-  res.json({ success: true });
-});
-
-// Root
 app.get('/', (req, res) => res.redirect('/configure'));
 
-// Start
-const PORT = process.env.PORT || 56565;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+// --------------------------
+// START
+// --------------------------
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Simkl PIN Sync Running | Port: ${PORT}`);
 });
