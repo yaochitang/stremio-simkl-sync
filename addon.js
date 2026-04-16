@@ -1,5 +1,5 @@
 // addon.js - Stremio Simkl Sync v0.0.1
-// NO URL SHORTENERS ✅ OFFICIAL SIMKL API ✅ RENDER READY ✅
+// ✅ NO URL SHORTENERS | ✅ OFFICIAL SIMKL API | ✅ RENDER LOGS WORK
 const express = require('express');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 // --------------------------
-// SERVER SETTINGS
+// SERVER
 // --------------------------
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 56565;
@@ -15,7 +15,6 @@ const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || 'SecureKey2026';
 const ENCRYPTION_KEY = crypto.scryptSync(ENCRYPTION_SECRET, 'salt', 32);
 const IV_LENGTH = 16;
 
-// AES-256-CBC Encryption/Decryption
 function encrypt(text) {
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
@@ -34,7 +33,7 @@ function decrypt(text) {
 }
 
 // --------------------------
-// CONFIG (ENCRYPTED FILE)
+// CONFIG
 // --------------------------
 const CONFIG_DIR = IS_PRODUCTION ? '/opt/render/config' : __dirname;
 if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -83,13 +82,13 @@ const SIMKL_API = {
 };
 
 // --------------------------
-// STREMIO MANIFEST v0.0.1
+// STREMIO MANIFEST
 // --------------------------
 const manifest = {
   id: 'org.stremio.simkl.sync',
   version: '0.0.1',
   name: 'Stremio Simkl Sync',
-  description: 'Scrobble Stremio playback to Simkl',
+  description: 'Scrobble Stremio to Simkl',
   logo: 'https://i.imgur.com/RM8QpFs.png',
   resources: [{ name: 'player', type: 'actor' }],
   types: ['movie', 'series'],
@@ -99,15 +98,15 @@ const manifest = {
 };
 
 // --------------------------
-// EXPRESS SERVER
+// EXPRESS
 // --------------------------
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Logging
+// LOG ALL REQUESTS → you WILL see these in Render
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log(`📥 ${req.method} ${req.originalUrl} | body:`, req.body);
   next();
 });
 
@@ -143,7 +142,7 @@ label{display:block;margin:12px 0 5px;font-weight:bold;}
 input,select,button{width:100%;padding:12px;border-radius:6px;border:none;font-size:15px;margin-bottom:8px;background:#2d2d3f;color:white;}
 button{background:#7CB342;cursor:pointer;}
 .btn-install{background:#2196F3;}
-.btn-test{background:#FF980background:#FF9800;}
+.btn-test{background:#FF9800;}
 </style>
 </head>
 <body>
@@ -225,7 +224,7 @@ app.get('/auth/simkl/callback', async (req, res) => {
       body: JSON.stringify({
         client_id: cfg.simklClientId,
         client_secret: cfg.simklClientSecret,
-        code: code,
+        code,
         grant_type: 'authorization_code',
         redirect_uri: redirect
       })
@@ -233,17 +232,17 @@ app.get('/auth/simkl/callback', async (req, res) => {
     const data = await r.json();
     if (data.access_token) {
       Config.save({ simklToken: data.access_token });
-      return res.send('<h1 style="color:green">✅ Authenticated successfully!</h1>');
+      return res.send('<h1 style="color:green">✅ Authenticated</h1>');
     }
-    res.send('<h1 style="color:red">❌ Authentication failed</h1>');
+    res.send('<h1 style="color:red">❌ Auth Failed</h1>');
   } catch (e) {
     console.error(e);
-    res.send('<h1 style="color:red">❌ Server error during authentication</h1>');
+    res.send('<h1 style="color:red">❌ Error</h1>');
   }
 });
 
 // --------------------------
-// SCROBBLE LOGIC
+// SCROBBLE
 // --------------------------
 async function sendScrobble(action, imdb, type, progress, durationSec) {
   const cfg = Config.get();
@@ -254,7 +253,7 @@ async function sendScrobble(action, imdb, type, progress, durationSec) {
   if (action === 'stop') url = SIMKL_API.SCROBBLE.STOP;
 
   try {
-    const response = await fetch(url, {
+    await fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${cfg.simklToken}`,
@@ -263,12 +262,10 @@ async function sendScrobble(action, imdb, type, progress, durationSec) {
       },
       body: JSON.stringify({
         [type === 'movie' ? 'movie' : 'episode']: { ids: { imdb } },
-        progress: progress,
+        progress,
         duration: durationSec
       })
     });
-    const data = await response.json();
-    console.log('Simkl response:', data);
     return true;
   } catch (e) {
     console.error('Scrobble error:', e);
@@ -278,13 +275,14 @@ async function sendScrobble(action, imdb, type, progress, durationSec) {
 
 app.get('/test-scrobble', async (req, res) => {
   const ok = await sendScrobble('start', 'tt1375666', 'movie', 30, 8880);
-  res.send(ok ? '✅ Test scrobble sent to Simkl' : '❌ Failed to send test scrobble');
+  res.send(ok ? '✅ Test sent' : '❌ Failed');
 });
 
 // --------------------------
 // STREMIO PLAYER HOOK
 // --------------------------
 app.post('/player', async (req, res) => {
+  console.log('✅ STREMIO PLAYER CALL:', req.body);
   const cfg = Config.get();
   const { videoId, time, duration, type, action } = req.body;
 
@@ -296,8 +294,6 @@ app.post('/player', async (req, res) => {
 
   const progress = Math.round((time / duration) * 100);
   const durationSec = Math.round(duration);
-
-  if (!cfg.syncFullProgress) return res.json({ success: true });
 
   let simklAction = 'start';
   if (action === 'pause') simklAction = 'pause';
@@ -318,7 +314,7 @@ app.get('/manifest.json', (req, res) => {
 app.get('/', (req, res) => res.redirect('/configure'));
 
 // --------------------------
-// START SERVER
+// START
 // --------------------------
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Stremio Simkl Sync v0.0.1 running on port ${PORT}`);
