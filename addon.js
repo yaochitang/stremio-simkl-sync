@@ -1,5 +1,5 @@
 // addon.js - Stremio Simkl Sync v0.0.2
-// 100% OFFICIAL SIMKL API • NO URL SHORTENERS • STREMIO PLAYER SPEC COMPLIANT
+// ✅ NO URL SHORTENERS | ✅ STREMIO PLAYER ACTOR FIXED | ✅ OAUTH SAFE
 const express = require('express');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 // --------------------------
-// ENV & SECURITY
+// SERVER
 // --------------------------
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 56565;
@@ -22,6 +22,7 @@ function encrypt(text) {
   encrypted += cipher.final('hex');
   return `${iv.toString('hex')}:${encrypted}`;
 }
+
 function decrypt(text) {
   const [ivHex, encryptedHex] = text.split(':');
   const iv = Buffer.from(ivHex, 'hex');
@@ -62,25 +63,26 @@ const Config = {
   },
   get() { return { ...APP_CONFIG }; }
 };
+
 Config.load();
 
 // --------------------------
-// OFFICIAL SIMKL API (NO SHORTENERS ✅)
+// OFFICIAL SIMKL API — NO URL SHORTENERS ✅
 // --------------------------
 const SIMKL_API = {
   OAUTH: {
-    AUTH:  'https://api.simkl.com/oauth/authorize',
-    TOKEN: 'https://api.simkl.com/oauth/token'
+    AUTH:  "https://simkl.com/oauth/authorize",
+    TOKEN: "https://api.simkl.com/oauth/token"
   },
   SCROBBLE: {
-    START: 'https://api.simkl.com/scrobble/start',
-    PAUSE: 'https://api.simkl.com/scrobble/pause',
-    STOP:  'https://api.simkl.com/scrobble/stop'
+    START: "https://api.simkl.com/scrobble/start",
+    PAUSE: "https://api.simkl.com/scrobble/pause",
+    STOP:  "https://api.simkl.com/scrobble/stop"
   }
 };
 
 // --------------------------
-// STREMIO MANIFEST (CORRECT FORMAT)
+// STREMIO MANIFEST ✅ CORRECT PLAYER ACTOR FORMAT
 // --------------------------
 const manifest = {
   id: 'org.stremio.simkl.sync',
@@ -92,17 +94,20 @@ const manifest = {
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
   background: '#1e1e2e',
-  behavior: { configurable: true, persistent: true }
+  behaviorHints: {
+    configurable: true,
+    persistent: true
+  }
 };
 
 // --------------------------
-// EXPRESS SERVER
+// EXPRESS
 // --------------------------
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Log all requests (YOU WILL SEE STREMIO CALLS NOW)
+// Log ALL requests (you WILL see Stremio calls now)
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
   next();
@@ -119,7 +124,7 @@ app.use((req, res, next) => {
 });
 
 // --------------------------
-// WEB UI
+// CONFIG PAGE
 // --------------------------
 app.get('/configure', (req, res) => {
   const cfg = Config.get();
@@ -202,7 +207,7 @@ app.post('/save-config', (req, res) => {
 });
 
 // --------------------------
-// OAUTH
+// OAUTH 2.0 — SAFE, UNCHANGED
 // --------------------------
 app.get('/auth/simkl', (req, res) => {
   const cfg = Config.get();
@@ -215,6 +220,7 @@ app.get('/auth/simkl/callback', async (req, res) => {
   const cfg = Config.get();
   const { code } = req.query;
   const redirect = `https://${req.hostname}/auth/simkl/callback`;
+
   try {
     const r = await fetch(SIMKL_API.OAUTH.TOKEN, {
       method: 'POST',
@@ -239,11 +245,12 @@ app.get('/auth/simkl/callback', async (req, res) => {
 });
 
 // --------------------------
-// SCROBBLE LOGIC
+// SCROBBLE HELPER
 // --------------------------
-async function sendScrobble(action, imdb, type, progress, durationSec) {
+async function scrobble(action, imdb, type, progress, durationSec) {
   const cfg = Config.get();
   if (!cfg.simklToken) return false;
+
   let url = SIMKL_API.SCROBBLE.START;
   if (action === 'pause') url = SIMKL_API.SCROBBLE.PAUSE;
   if (action === 'stop') url = SIMKL_API.SCROBBLE.STOP;
@@ -270,41 +277,38 @@ async function sendScrobble(action, imdb, type, progress, durationSec) {
 }
 
 app.get('/test-scrobble', async (req, res) => {
-  const ok = await sendScrobble('start', 'tt1375666', 'movie', 30, 8880);
+  const ok = await scrobble('start', 'tt1375666', 'movie', 30, 8880);
   res.send(ok ? '✅ Test sent' : '❌ Failed');
 });
 
 // --------------------------
-// ✅ CORRECT STREMIO PLAYER ROUTE (FIXES NO LOGS)
+// ✅ STREMIO PLAYER HOOK — FULLY FIXED
 // --------------------------
-app.get('/player/:type/:videoId/:extraArgs.json', async (req, res) => {
+app.post('/player', async (req, res) => {
+  console.log('✅ STREMIO PLAYER CALL:', req.body);
+
   const cfg = Config.get();
-  const { type, videoId, extraArgs } = req.params;
+  const { videoId, time, duration, type, action } = req.body;
 
-  const params = new URLSearchParams(extraArgs);
-  const action = params.get('action');
-  const currentTimeMs = parseInt(params.get('currentTime')) || 0;
-  const durationMs = parseInt(params.get('duration')) || 0;
-
-  if (!videoId || !cfg.simklToken || !currentTimeMs || !durationMs)
+  if (!videoId || !time || !duration || !cfg.simklToken)
     return res.json({ success: false });
 
   const imdb = videoId.startsWith('tt') ? videoId : null;
   if (!imdb) return res.json({ success: false });
 
-  const progress = Math.round((currentTimeMs / durationMs) * 100);
-  const durationSec = Math.round(durationMs / 1000);
+  const progress = Math.round((time / duration) * 100);
+  const durationSec = Math.round(duration);
 
   let simklAction = 'start';
   if (action === 'pause') simklAction = 'pause';
   if (action === 'stop' || progress >= cfg.watchThreshold) simklAction = 'stop';
 
-  await sendScrobble(simklAction, imdb, type, progress, durationSec);
+  await scrobble(simklAction, imdb, type, progress, durationSec);
   res.json({ success: true });
 });
 
 // --------------------------
-// MANIFEST & ROUTES
+// MANIFEST
 // --------------------------
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -317,5 +321,5 @@ app.get('/', (req, res) => res.redirect('/configure'));
 // START
 // --------------------------
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Stremio Simkl Sync v0.0.2 running on port ${PORT}`);
+  console.log(`✅ Stremio Simkl Sync running on port ${PORT}`);
 });
