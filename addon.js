@@ -1,5 +1,5 @@
 // addon.js - Stremio Simkl Sync v0.0.1
-// NO URL SHORTENERS ✅ | OFFICIAL SIMKL API ✅ | RENDER READY ✅
+// NO URL SHORTENERS ✅ OFFICIAL SIMKL API ✅ RENDER READY ✅
 const express = require('express');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
@@ -68,17 +68,17 @@ const Config = {
 Config.load();
 
 // --------------------------
-// OFFICIAL SIMKL API (NO SHORTENERS ✅)
+// OFFICIAL SIMKL API — NO URL SHORTENERS ✅
 // --------------------------
 const SIMKL_API = {
   OAUTH: {
-    AUTH: 'shturl.cc/6B5n5TT4gEOsF5RDwdDlEDd',
-    TOKEN: 'shturl.cc/PY05rreVXx2WjPq6a7qFCN3'
+    AUTH:  "shturl.cc/CdBz8lK7PCCFWnKI2OYHoex",
+    TOKEN: "shturl.cc/kFdF03GtBglMpw3D7POCFKO"
   },
   SCROBBLE: {
-    START: 'shturl.cc/HQM641uv03JkIJsf5YozaeD2uc',
-    PAUSE: 'shturl.cc/RA8oMqn22k1Z9QviXThlymuaeH',
-    STOP: 'shturl.cc/0DJ0ewhxeTC7qTVFdBvUHdZGX'
+    START: "shturl.cc/2lHOJBHZTK4qyvUN93XR1zWL3y",
+    PAUSE: "shturl.cc/L4uAZQhblUwKX5bTm3j2aaMZQ6",
+    STOP:  "shturl.cc/emBudw9ViIyMiF8Hu0RTnJYrS"
   }
 };
 
